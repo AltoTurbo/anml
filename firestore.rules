@@ -1,107 +1,69 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper functions
-    function isUserAuthenticated() {
-      return request.auth != null;
-    }
-    
-    function isClient() {
-        return isUserAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'client';
+    function isAdmin() {
+      return request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
     function isTrainer() {
-        return isUserAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'trainer';
+      return request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'trainer';
     }
 
-    function isAdmin() {
-        return isUserAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
-    }
-    
-    function isOwner(userId) {
-        return isUserAuthenticated() && request.auth.uid == userId;
-    }
+    // La función isSignedInUser ha sido eliminada ya que no se utilizaba.
 
-    function isOnlyUpdating(allowedFields) {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowedFields);
-    }
-
-    // --- Users Collection ---
-    // Anyone can create a user profile (register).
-    // Users can read their own profile. Admins and other authenticated users can read profiles.
-    // Users can update their own profile. Admins can update any profile.
     match /users/{userId} {
-      allow create: if isUserAuthenticated();
-      allow read: if isUserAuthenticated();
-      allow update: if isOwner(userId) || isAdmin();
-      allow delete: if false;
+      // Los usuarios pueden leer su propio perfil. Administradores y Entrenadores pueden leer cualquier perfil.
+      allow read: if request.auth != null && (request.auth.uid == userId || isAdmin() || isTrainer());
+      // Cualquier usuario autenticado puede crear su propio documento de usuario al registrarse.
+      allow create: if request.auth != null;
+      // Los usuarios pueden actualizar su propio perfil. Los administradores pueden actualizar cualquier perfil.
+      allow update: if request.auth != null && (request.auth.uid == userId || isAdmin());
     }
 
-    // --- Classes Collection ---
-    // Anyone authenticated can read classes.
-    // Admins and trainers can create, update, delete classes.
-    // Clients can update the 'booked' count only during a booking/cancellation transaction.
     match /classes/{classId} {
-      allow read: if isUserAuthenticated();
-      allow create, delete: if isTrainer() || isAdmin();
-      allow update: if isTrainer() || isAdmin() || 
-                      (isClient() && isOnlyUpdating(['booked']));
+      allow read: if request.auth != null; // Cualquiera autenticado puede leer las ofertas de clases
+      allow create, update, delete: if request.auth != null && (isAdmin() || isTrainer());
     }
 
-    // --- Bookings Collection ---
-    // Clients can create their own bookings.
-    // Users can read/update (cancel) their own bookings. Admins can read any.
     match /bookings/{bookingId} {
-      allow create: if isClient() && request.resource.data.userId == request.auth.uid;
-      allow read, update: if isOwner(resource.data.userId) || isAdmin();
-      allow delete: if false; // Status should be changed to 'cancelled', not deleted.
+      // Los usuarios pueden leer sus propias reservas. Administradores y Entrenadores pueden leer cualquier reserva relevante.
+      allow read: if request.auth != null && (request.auth.uid == resource.data.userId || isAdmin() || isTrainer());
+      // Los usuarios pueden crear sus propias reservas.
+      // Se asume que request.resource.data.userId contiene el UID del usuario para el cual se crea la reserva.
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+      // Los usuarios pueden actualizar (cancelar) sus propias reservas. Los administradores pueden gestionar cualquiera.
+      allow update: if request.auth != null && (request.auth.uid == resource.data.userId || isAdmin());
     }
 
-    // --- Products Collection ---
-    // Admins can do anything.
-    // Trainers can read products and update stock during a sale.
-    // Clients can read products.
     match /products/{productId} {
-        allow create, delete: if isAdmin();
-        allow read: if isUserAuthenticated();
-        // Admins can update anything. Trainers can only update stock.
-        allow update: if isAdmin() || (isTrainer() && isOnlyUpdating(['stock', 'updatedAt']));
-    }
-    
-    // --- Sales Collection ---
-    // Admins and trainers can create sales.
-    // Admins can read all sales.
-    match /sales/{saleId} {
-        allow create: if isAdmin() || isTrainer();
-        allow read: if isAdmin();
-        allow update, delete: if false; // Sales are immutable
-    }
-    
-    // --- Cash Transactions Collection ---
-    // Admins and trainers can create transactions.
-    // Admins can read all transactions.
-    match /cashTransactions/{transactionId} {
-        allow create: if isAdmin() || isTrainer();
-        allow read: if isAdmin();
-        allow update, delete: if false; // Transactions are immutable
+      allow read: if request.auth != null;
+      allow create, update, delete: if request.auth != null && isAdmin();
     }
 
-    // --- Membership Payments Collection ---
-    // Admins can create payments.
-    // Admins can read all payments.
-    match /membershipPayments/{paymentId} {
-        allow create, read: if isAdmin();
-        allow update, delete: if false; // Payments are immutable
+    match /cashTransactions/{transactionId} {
+      allow read, list: if request.auth != null && isAdmin();
+      allow create: if request.auth != null && isAdmin();
     }
-    
-    // --- Attendances Collection ---
-    // Admins and trainers can create attendances.
-    // Admins, trainers, and the user themselves can read attendances.
+
+    match /membershipPayments/{paymentId} {
+      allow read, list: if request.auth != null && isAdmin();
+      allow create: if request.auth != null && isAdmin();
+    }
+
+    match /sales/{saleId} {
+      allow read, list: if request.auth != null && isAdmin();
+      allow create: if request.auth != null && isAdmin();
+    }
+
     match /attendances/{attendanceId} {
-        allow create: if isTrainer() || isAdmin();
-        allow read: if isTrainer() || isAdmin() || isOwner(resource.data.userId);
-        allow update, delete: if false;
+      // Para operaciones GET (leer un solo registro de asistencia)
+      allow get: if request.auth != null &&
+                    (isAdmin() || isTrainer() || (request.auth.uid == resource.data.userId));
+      // Para operaciones LIST (consultar múltiples registros de asistencia)
+      allow list: if request.auth != null && (isAdmin() || isTrainer());
+      allow create: if request.auth != null && (isAdmin() || isTrainer());
     }
   }
 }
