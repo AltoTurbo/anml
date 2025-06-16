@@ -12,13 +12,16 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'  # Usa la misma versión que en local
+          node-version: '20'  # Usa la misma versión que en tu package.json
           cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci  # Usa 'npm ci' para instalación limpia
+      - name: Clean install
+        run: |
+          npm ci --no-audit  # Instalación limpia y segura
+          npm cache verify   # Limpia cache
 
       - name: Build project
         run: npm run build
 
-      # Agrega aquí los pasos de despliegue si es necesario
+      - name: Verify Next.js installation
+        run: npx next info  # Debugging adicional
