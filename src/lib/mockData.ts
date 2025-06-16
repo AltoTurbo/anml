@@ -361,7 +361,7 @@ export const addCashTransactionToDB = async (
 export const getCashTransactionsFromDB = async (): Promise<CashTransaction[]> => {
   try {
     const transactionsCol = collection(db, 'cashTransactions');
-    const q = query(transactionsCol, orderBy('date', 'desc'));
+    const q = query(transactionsCol, orderBy('date', 'desc')); // Ya no hay límite
     const transactionSnapshot = await getDocs(q);
     const transactionList = transactionSnapshot.docs.map(doc => {
       const data = doc.data();
@@ -448,11 +448,23 @@ export const recordSaleAndUpdateStock = async (
 
   try {
     await runTransaction(db, async (transaction) => {
-      const productsToUpdate: Array<{ ref: any; newStock: number; name: string }> = [];
+      const productReads: Promise<any>[] = [];
+      const productRefsAndData: { ref: any, item: SaleItem }[] = [];
 
+      // Phase 1: Prepare to read all product data
       for (const item of itemsSold) {
         const productRef = doc(db, 'products', item.productId);
-        const productSnap = await transaction.get(productRef);
+        productRefsAndData.push({ ref: productRef, item });
+        productReads.push(transaction.get(productRef));
+      }
+      
+      const productSnaps = await Promise.all(productReads);
+      const updates: { ref: any; newStock: number }[] = [];
+
+      // Phase 1 (cont.): Validate stock based on reads
+      for (let i = 0; i < productRefsAndData.length; i++) {
+        const { ref: productRef, item } = productRefsAndData[i];
+        const productSnap = productSnaps[i];
 
         if (!productSnap.exists()) {
           throw new Error(`Producto con ID ${item.productId} (${item.productName}) no encontrado.`);
@@ -461,16 +473,15 @@ export const recordSaleAndUpdateStock = async (
         if (currentStock < item.quantitySold) {
           throw new Error(`Stock insuficiente para ${item.productName}. Disponible: ${currentStock}, Solicitado: ${item.quantitySold}.`);
         }
-        productsToUpdate.push({
+        updates.push({
           ref: productRef,
           newStock: currentStock - item.quantitySold,
-          name: item.productName,
         });
       }
 
-      transaction.set(saleDocRef, newSaleData);
-
-      for (const prodUpdate of productsToUpdate) {
+      // Phase 2: Write all data
+      transaction.set(saleDocRef, newSaleData); // Write sale document
+      for (const prodUpdate of updates) { // Write product stock updates
         transaction.update(prodUpdate.ref, { stock: prodUpdate.newStock, updatedAt: serverTimestamp() });
       }
     });
@@ -512,6 +523,9 @@ export const addAttendanceToDB = async (
 export const getDailyAttendancesFromDB = async (dateString: string): Promise<Attendance[]> => {
   try {
     const attendancesCol = collection(db, 'attendances');
+    // ESTA CONSULTA REQUIERE UN ÍNDICE COMPUESTO EN FIRESTORE:
+    // Colección: attendances, Campos: date (ascendente), checkInTime (descendente)
+    // Firestore normalmente provee un enlace en la consola para crearlo si falla.
     const q = query(attendancesCol, where('date', '==', dateString), orderBy('checkInTime', 'desc'));
     const attendanceSnapshot = await getDocs(q);
     const attendanceList = attendanceSnapshot.docs.map(doc => {

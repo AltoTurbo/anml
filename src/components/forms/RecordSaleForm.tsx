@@ -27,6 +27,7 @@ import { useEffect, useState, useCallback } from "react";
 import type { Product, SaleItem } from "@/lib/mockData";
 import { getProductsFromDB } from "@/lib/mockData";
 import { useToast } from "@/hooks/use-toast";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const saleItemSchema = z.object({
   productId: z.string().min(1, "Debes seleccionar un producto."),
@@ -73,8 +74,13 @@ export default function RecordSaleForm({
 
   const fetchProducts = useCallback(async () => {
     const productsFromDB = await getProductsFromDB();
-    setAvailableProducts(productsFromDB.filter(p => p.stock > 0)); // Solo productos con stock
-  }, []);
+    // Filtra productos con stock y luego productos que ya están en el carrito
+    const itemsInCartIds = fields.map(item => item.productId);
+    setAvailableProducts(
+      productsFromDB.filter(p => p.stock > 0 && !itemsInCartIds.includes(p.id))
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fields]); // Depende de fields para actualizar la lista de disponibles
 
   useEffect(() => {
     fetchProducts();
@@ -97,10 +103,12 @@ export default function RecordSaleForm({
     const existingItemIndex = fields.findIndex(item => item.productId === selectedProductForAdding.id);
 
     if (existingItemIndex !== -1) {
+      // Esto no debería ocurrir si filtramos productos ya en el carrito de `availableProducts`
+      // Pero como una salvaguarda, actualizamos la cantidad si ya existe.
       const existingItem = fields[existingItemIndex];
       const newQuantity = existingItem.quantitySold + quantityForAdding;
       if (newQuantity > selectedProductForAdding.stock) {
-        toast({ title: "Error", description: `Stock insuficiente para ${selectedProductForAdding.name} si añades ${quantityForAdding} más. Ya en venta: ${existingItem.quantitySold}, Disponible total: ${selectedProductForAdding.stock}.`, variant: "destructive" });
+        toast({ title: "Error", description: `Stock insuficiente para ${selectedProductForAdding.name}. Stock total: ${selectedProductForAdding.stock}, ya añadido: ${existingItem.quantitySold}, intentando añadir: ${quantityForAdding}.`, variant: "destructive" });
         return;
       }
       update(existingItemIndex, {
@@ -118,17 +126,16 @@ export default function RecordSaleForm({
         subtotal: quantityForAdding * selectedProductForAdding.price,
       });
     }
-
-    // Reset selection
+    
+    // Reset selection and refetch/filter available products
     setSelectedProductForAdding(null);
     setQuantityForAdding(1);
-    // Considerar refrescar availableProducts si el stock llega a 0 tras añadir al carrito
+    // No necesitamos llamar a fetchProducts explícitamente aquí porque el useEffect de fields lo hará.
   };
 
   const totalVenta = fields.reduce((sum, item) => sum + item.subtotal, 0);
 
   const handleFormSubmit = async (data: RecordSaleFormValues) => {
-    // Transform items to SaleItem[] for the backend
     const saleItems: SaleItem[] = data.items.map(item => ({
         productId: item.productId,
         productName: item.productName,
@@ -137,7 +144,6 @@ export default function RecordSaleForm({
         subtotal: item.subtotal,
     }));
     await onSubmit(saleItems);
-    // form.reset(); // No resetear aquí, el diálogo se cierra
   };
 
   return (
@@ -156,7 +162,7 @@ export default function RecordSaleForm({
             >
               <FormControl>
                 <SelectTrigger>
-                  <SelectValue placeholder={availableProducts.length > 0 ? "Selecciona un producto" : "No hay productos con stock"} />
+                  <SelectValue placeholder={availableProducts.length > 0 ? "Selecciona un producto" : "No hay productos con stock o todos están en la lista"} />
                 </SelectTrigger>
               </FormControl>
               <SelectContent>
@@ -184,7 +190,7 @@ export default function RecordSaleForm({
             type="button"
             onClick={handleAddProductToSale}
             disabled={isSaving || !selectedProductForAdding || quantityForAdding <= 0}
-            className="bg-secondary text-secondary-foreground hover:bg-secondary/80"
+            className="bg-primary text-primary-foreground hover:bg-primary/90"
           >
             <PlusCircle className="mr-2 h-4 w-4" /> Añadir
           </Button>
@@ -196,44 +202,46 @@ export default function RecordSaleForm({
 
 
         {fields.length > 0 && (
-          <Card>
-            <CardHeader>
+          <Card className="mt-4">
+            <CardHeader className="py-4">
               <CardTitle className="text-lg">Productos en esta Venta</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Producto</TableHead>
-                    <TableHead className="text-center">Cantidad</TableHead>
-                    <TableHead className="text-right">Precio Unit.</TableHead>
-                    <TableHead className="text-right">Subtotal</TableHead>
-                    <TableHead className="text-center">Acción</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {fields.map((item, index) => (
-                    <TableRow key={item.id}>
-                      <TableCell className="font-medium">{item.productName}</TableCell>
-                      <TableCell className="text-center">{item.quantitySold}</TableCell>
-                      <TableCell className="text-right">${item.unitPrice.toFixed(2)}</TableCell>
-                      <TableCell className="text-right">${item.subtotal.toFixed(2)}</TableCell>
-                      <TableCell className="text-center">
-                        <Button type="button" variant="destructive" size="icon" onClick={() => remove(index)} disabled={isSaving}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Producto</TableHead>
+                      <TableHead className="text-center">Cantidad</TableHead>
+                      <TableHead className="text-right">Precio Unit.</TableHead>
+                      <TableHead className="text-right">Subtotal</TableHead>
+                      <TableHead className="text-center">Acción</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {fields.map((item, index) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-medium whitespace-nowrap">{item.productName}</TableCell>
+                        <TableCell className="text-center">{item.quantitySold}</TableCell>
+                        <TableCell className="text-right">${item.unitPrice.toFixed(2)}</TableCell>
+                        <TableCell className="text-right">${item.subtotal.toFixed(2)}</TableCell>
+                        <TableCell className="text-center">
+                          <Button type="button" variant="destructive" size="icon" onClick={() => remove(index)} disabled={isSaving}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             </CardContent>
           </Card>
         )}
 
         {fields.length > 0 && (
           <div className="text-right text-xl font-semibold mt-4">
-            Total de la Venta: <span className="text-primary">${totalVenta.toFixed(2)}</span>
+            Total de la Venta: <span className="text-accent">${totalVenta.toFixed(2)}</span>
           </div>
         )}
 
@@ -259,3 +267,4 @@ export default function RecordSaleForm({
     </Form>
   );
 }
+

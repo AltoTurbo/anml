@@ -5,7 +5,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, updateDoc, doc as firestoreDoc, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, updateDoc, doc as firestoreDoc, Timestamp, query as firestoreQuery, where } from 'firebase/firestore'; // Added query and where
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -40,9 +40,9 @@ import {
   paymentMethods,
   type SaleItem,
   recordSaleAndUpdateStock,
-  type Attendance, // Importar Attendance
-  addAttendanceToDB, // Importar addAttendanceToDB
-  getDailyAttendancesFromDB, // Importar getDailyAttendancesFromDB
+  type Attendance,
+  addAttendanceToDB,
+  getDailyAttendancesFromDB,
 } from '@/lib/mockData';
 import AddClassForm, { type AddClassFormValues } from '@/components/forms/AddClassForm';
 import AddProductForm, { type AddProductFormValues } from '@/components/forms/AddProductForm';
@@ -54,7 +54,7 @@ import { useToast } from '@/hooks/use-toast';
 import type { UserProfile } from '@/contexts/AuthContext';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { format as formatDateFns, formatISO } from 'date-fns'; // Renombrar format a formatDateFns para evitar conflicto
+import { format as formatDateFns } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from "@/lib/utils";
 
@@ -148,13 +148,13 @@ export default function TrainerDashboardPage() {
 
   const fetchCashTransactionsForDashboard = useCallback(async () => {
     if (userProfile?.role !== 'admin') return;
-    const transactionsFromDB = await getCashTransactionsFromDB(); 
+    const transactionsFromDB = await getCashTransactionsFromDB();
     const sortedTransactions = transactionsFromDB.sort((a, b) => b.date.toMillis() - a.date.toMillis());
     setCashTransactions(sortedTransactions);
   }, [userProfile]);
 
   useEffect(() => {
-    if (activeTab === "manage-cash-flow") { 
+    if (activeTab === "manage-cash-flow") {
       const balance = calculateCashBalance(cashTransactions);
       setCashBalance(balance);
     }
@@ -233,9 +233,11 @@ export default function TrainerDashboardPage() {
   }, [authLoading, isAuthenticated, userProfile, router]);
 
   useEffect(() => {
-    if (authLoading || !userProfile) {
+    if (authLoading) {
       return;
     }
+
+    if (!userProfile) return;
 
     if (availableTabs.length > 0) {
       const currentActiveTabIsValid = activeTab && availableTabs.some(t => t.value === activeTab);
@@ -253,9 +255,9 @@ export default function TrainerDashboardPage() {
   useEffect(() => {
     if (authLoading || !userProfile || !activeTab) {
       if (!authLoading && userProfile && availableTabs.length > 0 && !activeTab) {
-        setDashboardPageLoading(true);
+        setDashboardPageLoading(true); 
       } else if (!authLoading && userProfile && availableTabs.length === 0) {
-        setDashboardPageLoading(false);
+        setDashboardPageLoading(false); 
       }
       return;
     }
@@ -267,7 +269,8 @@ export default function TrainerDashboardPage() {
         if (activeTab === "manage-classes") {
           await fetchClassesForDashboard();
           if (userProfile.role === 'admin') {
-            await fetchAllUsersForAdmin(); // Esto ya carga clientes y entrenadores
+             // Ensure trainers are loaded if admin is managing classes
+            if(availableTrainers.length === 0) await fetchAllUsersForAdmin();
           }
         } else if (activeTab === "manage-products" && userProfile.role === 'admin') {
           await fetchProductsForDashboard();
@@ -276,33 +279,40 @@ export default function TrainerDashboardPage() {
         } else if (activeTab === "manage-users" && userProfile.role === 'admin') {
           await fetchAllUsersForAdmin();
         } else if (activeTab === "manage-attendance") {
-          if(userProfile.role === 'admin') await fetchAllUsersForAdmin(); // Para cargar los clientes si es admin
-          else { // Si es trainer, solo necesita su propia info y la de los clientes
-            const clients = allUsersForAdminState.filter(u => u.role === 'client').sort((a,b) => a.name.localeCompare(b.name));
-            if(clients.length > 0) setAllClientsForAttendance(clients);
-            else { // Si no hay clientes en el estado general (porque no es admin o no se cargaron aún)
+          if(userProfile.role === 'admin') {
+            // For admin, ensure all users (and thus clients) are loaded
+            if(allClientsForAttendance.length === 0 || allUsersForAdminState.length === 0) await fetchAllUsersForAdmin();
+          } else if (userProfile.role === 'trainer') {
+            // For trainer, fetch clients if not already available (e.g. from admin fetch)
+            if(allClientsForAttendance.length === 0) {
                  const usersCollectionRef = collection(db, "users");
-                 const q = query(usersCollectionRef, where("role", "==", "client"));
+                 const q = firestoreQuery(usersCollectionRef, where("role", "==", "client"));
                  const querySnapshot = await getDocs(q);
                  const clientList: UserProfile[] = [];
                  querySnapshot.forEach((doc) => {
-                    clientList.push({ id: doc.id, ...(doc.data() as UserProfile) });
+                    const data = doc.data() as UserProfile;
+                    if (data.name && data.email && data.role) { // Ensure basic fields exist
+                        clientList.push({ id: doc.id, ...data });
+                    }
                  });
                  setAllClientsForAttendance(clientList.sort((a,b) => a.name.localeCompare(b.name)));
             }
           }
           await fetchDailyAttendances();
         }
-      } catch (error) {
-        console.error(`[TrainerDashboard] Error loading data for tab ${activeTab}:`, error);
-        toast({ title: "Error al Cargar Datos", description: `No se pudieron cargar datos para ${activeTab}.`, variant: "destructive" });
+      } catch (error: any) {
+        console.error(`[TrainerDashboard] Error loading data for tab ${activeTab}:`, error.message, error.stack);
+        toast({ title: "Error al Cargar Datos", description: `No se pudieron cargar datos para ${activeTab}. Detalles: ${error.message}`, variant: "destructive" });
       } finally {
         setDashboardPageLoading(false);
       }
     };
 
     loadDashboardData();
-  }, [activeTab, userProfile, authLoading, fetchClassesForDashboard, fetchProductsForDashboard, fetchCashTransactionsForDashboard, fetchAllUsersForAdmin, fetchDailyAttendances, availableTabs, toast, allUsersForAdminState]);
+  // Dependency array simplified to prevent loops. Functions are stable.
+  // `allUsersForAdminState` was removed as it could cause a loop if updated by a function within this effect.
+  // Data fetching functions will use the latest state from their closure.
+  }, [activeTab, userProfile, authLoading, fetchClassesForDashboard, fetchProductsForDashboard, fetchCashTransactionsForDashboard, fetchAllUsersForAdmin, fetchDailyAttendances, availableTabs, toast, availableTrainers.length, allClientsForAttendance.length]);
 
 
   const handleOpenAddClassDialog = () => setIsAddClassDialogOpen(true);
@@ -311,7 +321,7 @@ export default function TrainerDashboardPage() {
     if (reloadData) {
       await fetchClassesForDashboard();
       if (userProfile?.role === 'admin') {
-        await fetchAllUsersForAdmin();
+        await fetchAllUsersForAdmin(); // Re-fetch users to update trainer list if necessary
       }
     }
   };
@@ -343,7 +353,7 @@ export default function TrainerDashboardPage() {
     if (reloadData) {
       await fetchClassesForDashboard();
       if (userProfile?.role === 'admin') {
-        await fetchAllUsersForAdmin();
+        await fetchAllUsersForAdmin(); // Re-fetch users to update trainer list if necessary
       }
     }
   };
@@ -363,7 +373,7 @@ export default function TrainerDashboardPage() {
       time: updatedClassData.time,
       duration: updatedClassData.duration,
       capacity: updatedClassData.capacity,
-      booked: editingClass.booked,
+      booked: editingClass.booked, // Keep current booked count
       description: updatedClassData.description,
       category: updatedClassData.category,
     };
@@ -506,21 +516,8 @@ export default function TrainerDashboardPage() {
     const success = await saveUserProfileToDB(updatedProfileData);
     if (success) {
       toast({ title: "Rol Actualizado", description: `${userToUpdate.name} ahora es ${newRole}.` });
-      setAllUsersForAdminState(prevUsers => prevUsers.map(u => u.id === userIdToChange ? { ...u, role: newRole } : u));
-      if (newRole === 'trainer') {
-        const newTrainerData = { id: userToUpdate.id, name: userToUpdate.name, email: userToUpdate.email, specialty: userToUpdate.specialty || 'Entrenador/a', bio: userToUpdate.bio || 'Biografía pendiente.', imageUrl: userToUpdate.imageUrl || `https://placehold.co/100x100.png?text=${userToUpdate.name.split(' ').map(n => n[0]).join('')}` };
-        setAvailableTrainers(prev => prev.find(t => t.id === userIdToChange) ? prev.map(t => t.id === userIdToChange ? newTrainerData : t) : [...prev, newTrainerData]);
-      } else {
-        setAvailableTrainers(prev => prev.filter(t => t.id !== userIdToChange));
-      }
-       // Actualizar también allClientsForAttendance
-      if (newRole === 'client') {
-        const clientData = allUsersForAdminState.find(u => u.id === userIdToChange);
-        if (clientData) setAllClientsForAttendance(prev => [...prev, clientData].sort((a,b) => a.name.localeCompare(b.name)));
-      } else { // si se promueve a trainer, quitarlo de clientes
-        setAllClientsForAttendance(prev => prev.filter(c => c.id !== userIdToChange));
-      }
-
+      // Optimistically update local state or re-fetch
+      await fetchAllUsersForAdmin(); 
     } else {
       toast({ title: "Error al Actualizar Rol", description: `No se pudo cambiar el rol de ${userToUpdate.name}.`, variant: "destructive" });
     }
@@ -568,16 +565,9 @@ export default function TrainerDashboardPage() {
 
     if (recordedPayment) {
       toast({ title: "Pago Registrado", description: `Pago de ${selectedUserForPayment.name} guardado.` });
-
-      setAllUsersForAdminState(prevUsers =>
-        prevUsers.map(u =>
-          u.id === selectedUserForPayment.id
-            ? { ...u, paymentStatus: 'paid', paymentDueDate: recordedPayment.newPaymentDueDate }
-            : u
-        )
-      );
-      setAllClientsForAttendance(prevClients => prevClients.map(c => c.id === selectedUserForPayment.id ? { ...c, paymentStatus: 'paid', paymentDueDate: recordedPayment.newPaymentDueDate } : c));
-
+      
+      // Re-fetch all users to update payment status in the table
+      await fetchAllUsersForAdmin(); 
 
       const cashTransactionPayload: Omit<CashTransaction, 'id' | 'date' | 'recordedByUserId' | 'recordedByUserName'> = {
         type: 'income',
@@ -588,7 +578,7 @@ export default function TrainerDashboardPage() {
       await addCashTransactionToDB(cashTransactionPayload, currentUser.uid, userProfile.name);
 
       if (activeTab === 'manage-cash-flow') {
-        await fetchCashTransactionsForDashboard();
+        await fetchCashTransactionsForDashboard(); // Also re-fetch cash if on that tab
       }
 
       handleCloseAddPaymentDialog();
@@ -659,8 +649,6 @@ export default function TrainerDashboardPage() {
     const attendancePayload: Omit<Attendance, 'id' | 'checkInTime' | 'date'> = {
       userId: client.id,
       userName: client.name,
-      // classId: undefined, // Para asistencia general
-      // className: undefined, // Para asistencia general
       recordedByUserId: currentUser.uid,
       recordedByUserName: userProfile.name,
     };
@@ -669,8 +657,9 @@ export default function TrainerDashboardPage() {
 
     if (recordedAttendance) {
       toast({ title: "Asistencia Registrada", description: `Entrada de ${client.name} registrada.` });
-      setDailyAttendances(prev => [recordedAttendance, ...prev]);
-      setSelectedClientIdForAttendance(''); // Resetear selección
+      // Optimistically add to local state or re-fetch
+      await fetchDailyAttendances();
+      setSelectedClientIdForAttendance(''); 
     } else {
       toast({ title: "Error", description: "No se pudo registrar la asistencia.", variant: "destructive" });
     }
@@ -691,7 +680,10 @@ export default function TrainerDashboardPage() {
   }
 
   if (userProfile && userProfile.role !== 'trainer' && userProfile.role !== 'admin') {
-    return <div className="text-center py-10"><p>Cargando...</p></div>;
+    // This check might be redundant due to the effect hook above, but kept for safety.
+    // The effect hook should redirect if the role is not appropriate.
+    // Showing a loading or placeholder is better than a blank screen if redirection is pending.
+    return <div className="text-center py-10"><p>Cargando o acceso no permitido...</p></div>;
   }
 
   const pageTitle = userProfile?.role === 'admin' ? "Panel de Administrador" : "Panel de Entrenador/a";
@@ -798,7 +790,7 @@ export default function TrainerDashboardPage() {
                       >
                         {isBalanceVisible ? `$${cashBalance.toFixed(2)}` : '$∗∗∗∗∗∗∗'}
                       </div>
-                      <p className="text-xs text-muted-foreground mt-1">
+                       <p className="text-xs text-muted-foreground mt-1">
                         Saldo calculado de todas las transacciones registradas.
                       </p>
                     </CardContent>
@@ -1029,5 +1021,3 @@ export default function TrainerDashboardPage() {
   );
 }
 
-
-    

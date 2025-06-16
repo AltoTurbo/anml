@@ -25,23 +25,6 @@ const nextConfig: NextConfig = {
       }
     ],
   },
-
-    // --- Sección para Webpack ---
-  webpack: (config) => {
-    // Para Handlebars (require.extensions)
-    config.module.rules.push({
-      test: /\.handlebars$/,
-      loader: 'handlebars-loader',
-    });
-
-    // Opcional: Ignora módulos opcionales (como OpenTelemetry si no los usas)
-    config.resolve.fallback = {
-      ...config.resolve.fallback,
-      '@opentelemetry/exporter-jaeger': false, // Ignora el error del módulo no encontrado
-    };
-
-    return config;
-  },
 };
 
 export default nextConfig;
