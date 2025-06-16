@@ -1,2 +1,6 @@
+<<<<<<< HEAD
  - name: Install dependencies
   run: npm install
+=======
+ 
+>>>>>>> 5872684 (Deploy automático al push)
