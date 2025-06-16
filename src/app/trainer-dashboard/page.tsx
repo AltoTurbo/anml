@@ -1,16 +1,23 @@
 
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, updateDoc, doc as firestoreDoc, Timestamp } from 'firebase/firestore'; // Asegúrate de importar doc como firestoreDoc si 'doc' ya está usado
+import { collection, getDocs, updateDoc, doc as firestoreDoc, Timestamp } from 'firebase/firestore';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   type ClassOffering,
   addClassToDB,
@@ -20,37 +27,98 @@ import {
   saveUserProfileToDB,
   getUserProfileFromDB,
   type Trainer,
+  type Product,
+  getProductsFromDB,
+  addProductToDB,
+  updateProductInDB,
+  deleteProductFromDB,
+  type CashTransaction,
+  addCashTransactionToDB,
+  getCashTransactionsFromDB,
+  type MembershipPayment,
+  addMembershipPaymentToDB,
+  paymentMethods,
+  type SaleItem,
+  recordSaleAndUpdateStock,
+  type Attendance, // Importar Attendance
+  addAttendanceToDB, // Importar addAttendanceToDB
+  getDailyAttendancesFromDB, // Importar getDailyAttendancesFromDB
 } from '@/lib/mockData';
 import AddClassForm, { type AddClassFormValues } from '@/components/forms/AddClassForm';
-import { PlusCircle, Edit3, Trash2, UserCog, ListOrdered, ArrowDownUp, Loader2, CreditCard, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import AddProductForm, { type AddProductFormValues } from '@/components/forms/AddProductForm';
+import AddCashTransactionForm, { type AddCashTransactionFormValues } from '@/components/forms/AddCashTransactionForm';
+import AddMembershipPaymentForm, { type AddMembershipPaymentFormValues } from '@/components/forms/AddMembershipPaymentForm';
+import RecordSaleForm from '@/components/forms/RecordSaleForm';
+import { PlusCircle, Edit3, Trash2, UserCog, ListOrdered, ArrowDownUp, Loader2, CreditCard, CheckCircle, XCircle, AlertCircle, PackageSearch, ShoppingBag, Landmark, ShoppingCart, Eye, EyeOff, UserCheck, LogIn as LogInIcon } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { UserProfile } from '@/contexts/AuthContext';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
-import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { format as formatDateFns, formatISO } from 'date-fns'; // Renombrar format a formatDateFns para evitar conflicto
+import { es } from 'date-fns/locale';
+import { cn } from "@/lib/utils";
 
+const TABS_CONFIG = [
+  { value: "manage-classes", label: "Gestionar Clases", icon: ListOrdered, roles: ['admin', 'trainer'] },
+  { value: "manage-products", label: "Gestionar Productos", icon: ShoppingBag, roles: ['admin'] },
+  { value: "manage-cash-flow", label: "Gestión de Caja", icon: Landmark, roles: ['admin'] },
+  { value: "manage-users", label: "Usuarios y Pagos", icon: UserCog, roles: ['admin'] },
+  { value: "manage-attendance", label: "Registro de Asistencias", icon: UserCheck, roles: ['admin', 'trainer'] },
+];
 
 export default function TrainerDashboardPage() {
   const { currentUser, userProfile, isAuthenticated, loading: authLoading } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
+
   const [trainerClasses, setTrainerClasses] = useState<ClassOffering[]>([]);
-  const [allUsersForAdminState, setAllUsersForAdminState] = useState<UserProfile[]>([]);
-  const [availableTrainers, setAvailableTrainers] = useState<Trainer[]>([]);
   const [isAddClassDialogOpen, setIsAddClassDialogOpen] = useState(false);
   const [isEditClassDialogOpen, setIsEditClassDialogOpen] = useState(false);
   const [editingClass, setEditingClass] = useState<ClassOffering | null>(null);
   const [classToDelete, setClassToDelete] = useState<ClassOffering | null>(null);
-  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
-  const [pageLoading, setPageLoading] = useState(true);
+  const [isDeleteClassConfirmOpen, setIsDeleteClassConfirmOpen] = useState(false);
+
+  const [products, setProducts] = useState<Product[]>([]);
+  const [isAddProductDialogOpen, setIsAddProductDialogOpen] = useState(false);
+  const [isEditProductDialogOpen, setIsEditProductDialogOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+  const [isDeleteProductConfirmOpen, setIsDeleteProductConfirmOpen] = useState(false);
+  const [isSavingProduct, setIsSavingProduct] = useState(false);
+
+  const [cashTransactions, setCashTransactions] = useState<CashTransaction[]>([]);
+  const [isAddCashTransactionDialogOpen, setIsAddCashTransactionDialogOpen] = useState(false);
+  const [isSavingCashTransaction, setIsSavingCashTransaction] = useState(false);
+  const [cashBalance, setCashBalance] = useState<number>(0);
+  const [isBalanceVisible, setIsBalanceVisible] = useState<boolean>(false);
+
+
+  const [allUsersForAdminState, setAllUsersForAdminState] = useState<UserProfile[]>([]);
+  const [availableTrainers, setAvailableTrainers] = useState<Trainer[]>([]);
   const [isUpdatingRole, setIsUpdatingRole] = useState<Record<string, boolean>>({});
+
+  const [isAddPaymentDialogOpen, setIsAddPaymentDialogOpen] = useState(false);
+  const [selectedUserForPayment, setSelectedUserForPayment] = useState<UserProfile | null>(null);
+  const [isSavingPayment, setIsSavingPayment] = useState(false);
+
+  const [isRecordSaleDialogOpen, setIsRecordSaleDialogOpen] = useState(false);
+  const [isSavingSale, setIsSavingSale] = useState(false);
+
+  const [allClientsForAttendance, setAllClientsForAttendance] = useState<UserProfile[]>([]);
+  const [dailyAttendances, setDailyAttendances] = useState<Attendance[]>([]);
+  const [selectedClientIdForAttendance, setSelectedClientIdForAttendance] = useState<string>('');
+  const [isRegisteringAttendance, setIsRegisteringAttendance] = useState(false);
+
+
+  const [dashboardPageLoading, setDashboardPageLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<string | undefined>(undefined);
 
-  // Estado local para los detalles de pago que se están editando
-  const [localPaymentDetails, setLocalPaymentDetails] = useState<Record<string, { status: UserProfile['paymentStatus'], dueDate: string }>>({});
-  const [updatingPaymentStates, setUpdatingPaymentStates] = useState<Record<string, boolean>>({});
-
+  const availableTabs = useMemo(() => {
+    if (!userProfile || !userProfile.role) {
+      return [];
+    }
+    return TABS_CONFIG.filter(tab => tab.roles.includes(userProfile.role));
+  }, [userProfile]);
 
   const fetchClassesForDashboard = useCallback(async () => {
     if (!currentUser || !userProfile) return;
@@ -58,140 +126,206 @@ export default function TrainerDashboardPage() {
     if (userProfile.role === 'trainer') {
       classesFromDB = classesFromDB.filter(c => c.trainerId === currentUser.uid);
     }
-    setTrainerClasses(classesFromDB.sort((a,b) => a.name.localeCompare(b.name)));
+    setTrainerClasses(classesFromDB.sort((a, b) => a.name.localeCompare(b.name)));
   }, [currentUser, userProfile]);
+
+  const fetchProductsForDashboard = useCallback(async () => {
+    if (userProfile?.role !== 'admin') return;
+    const productsFromDB = await getProductsFromDB();
+    setProducts(productsFromDB);
+  }, [userProfile]);
+
+  const calculateCashBalance = (transactions: CashTransaction[]): number => {
+    return transactions.reduce((acc, transaction) => {
+      if (transaction.type === 'income') {
+        return acc + transaction.amount;
+      } else if (transaction.type === 'expense') {
+        return acc - transaction.amount;
+      }
+      return acc;
+    }, 0);
+  };
+
+  const fetchCashTransactionsForDashboard = useCallback(async () => {
+    if (userProfile?.role !== 'admin') return;
+    const transactionsFromDB = await getCashTransactionsFromDB(); 
+    const sortedTransactions = transactionsFromDB.sort((a, b) => b.date.toMillis() - a.date.toMillis());
+    setCashTransactions(sortedTransactions);
+  }, [userProfile]);
+
+  useEffect(() => {
+    if (activeTab === "manage-cash-flow") { 
+      const balance = calculateCashBalance(cashTransactions);
+      setCashBalance(balance);
+    }
+  }, [cashTransactions, activeTab]);
+
 
   const fetchAllUsersForAdmin = useCallback(async () => {
     if (!currentUser || userProfile?.role !== 'admin') {
       setAllUsersForAdminState([]);
       setAvailableTrainers([]);
+      setAllClientsForAttendance([]);
       return;
     }
-    console.log("fetchAllUsersForAdmin: Iniciando carga de usuarios y entrenadores desde Firestore...");
     let fetchedUsers: UserProfile[] = [];
     try {
-        const usersCollectionRef = collection(db, "users");
-        const querySnapshot = await getDocs(usersCollectionRef);
-        querySnapshot.forEach((doc) => {
-            const data = doc.data() as UserProfile;
-            console.log(`fetchAllUsersForAdmin: Documento crudo de Firestore (ID: ${doc.id}):`, JSON.parse(JSON.stringify(data)));
-            if (data.name && data.email && data.role) {
-                 fetchedUsers.push({ id: doc.id, ...data });
-            } else {
-                console.warn(`fetchAllUsersForAdmin: Documento de usuario con ID ${doc.id} no tiene todos los campos esperados (name, email, role). Será omitido.`);
-            }
-        });
-        
-        const filteredUsersForDisplay = fetchedUsers
-          .filter(u => u.id !== currentUser.uid) 
-          .sort((a,b) => a.name.localeCompare(b.name)); 
-        
-        setAllUsersForAdminState(filteredUsersForDisplay);
-        console.log("fetchAllUsersForAdmin: Usuarios para gestión (filtrados y ordenados) seteados en estado:", JSON.parse(JSON.stringify(filteredUsersForDisplay)));
+      const usersCollectionRef = collection(db, "users");
+      const querySnapshot = await getDocs(usersCollectionRef);
+      querySnapshot.forEach((doc) => {
+        const data = doc.data() as UserProfile;
+        if (data.name && data.email && data.role) {
+          fetchedUsers.push({ id: doc.id, ...data });
+        }
+      });
 
-        const trainersFromFirestore = fetchedUsers
-            .filter(u => u.role === 'trainer')
-            .map(u => ({ 
-                id: u.id, 
-                name: u.name, 
-                email: u.email,
-                specialty: u.specialty || 'Entrenador/a', 
-                bio: u.bio || 'Biografía pendiente.', 
-                imageUrl: u.imageUrl || `https://placehold.co/100x100.png?text=${u.name.split(' ').map(n=>n[0]).join('')}`
-            } as Trainer));
-        setAvailableTrainers(trainersFromFirestore);
-        console.log("fetchAllUsersForAdmin: Entrenadores disponibles cargados:", trainersFromFirestore);
+      const filteredUsersForDisplay = fetchedUsers
+        .filter(u => u.id !== currentUser.uid)
+        .sort((a, b) => a.name.localeCompare(b.name));
 
+      setAllUsersForAdminState(filteredUsersForDisplay);
+      
+      const clients = fetchedUsers.filter(u => u.role === 'client').sort((a,b) => a.name.localeCompare(b.name));
+      setAllClientsForAttendance(clients);
+
+
+      const trainersFromFirestore = fetchedUsers
+        .filter(u => u.role === 'trainer')
+        .map(u => ({
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          specialty: u.specialty || 'Entrenador/a',
+          bio: u.bio || 'Biografía pendiente.',
+          imageUrl: u.imageUrl || `https://placehold.co/100x100.png?text=${u.name.split(' ').map(n => n[0]).join('')}`
+        } as Trainer));
+      setAvailableTrainers(trainersFromFirestore);
     } catch (error) {
-        console.error("Error obteniendo usuarios de Firestore para el panel de admin:", error);
-        toast({ title: "Error al Cargar Usuarios", description: "No se pudieron cargar los usuarios desde la base de datos.", variant: "destructive" });
-        setAllUsersForAdminState([]); 
-        setAvailableTrainers([]);
+      console.error("[TrainerDashboard] fetchAllUsersForAdmin: Error fetching users:", error);
+      toast({ title: "Error al Cargar Usuarios", description: "No se pudieron cargar los usuarios.", variant: "destructive" });
+      setAllUsersForAdminState([]);
+      setAvailableTrainers([]);
+      setAllClientsForAttendance([]);
     }
   }, [currentUser, userProfile, toast]);
+
+  const fetchDailyAttendances = useCallback(async () => {
+    if (!userProfile || !['admin', 'trainer'].includes(userProfile.role)) return;
+    const todayString = formatDateFns(new Date(), 'yyyy-MM-dd');
+    const attendancesFromDB = await getDailyAttendancesFromDB(todayString);
+    setDailyAttendances(attendancesFromDB);
+  }, [userProfile]);
 
 
   useEffect(() => {
     if (authLoading) {
-      setPageLoading(true);
+      setDashboardPageLoading(true);
       return;
     }
-
     if (!isAuthenticated || !userProfile) {
       router.push('/');
-      setPageLoading(false);
       return;
     }
-
     if (userProfile.role !== 'trainer' && userProfile.role !== 'admin') {
       router.push('/');
-      setPageLoading(false);
       return;
     }
-    
-    const TABS_CONFIG_LOCAL = [
-        { value: "manage-classes", label: "Gestionar Clases", icon: ListOrdered, roles: ['admin', 'trainer'] },
-        { value: "manage-users", label: "Gestionar Usuarios y Pagos", icon: UserCog, roles: ['admin'] },
-    ];
-    const availableTabsLocal = TABS_CONFIG_LOCAL.filter(tab => userProfile && tab.roles.includes(userProfile.role));
-    const currentActiveTab = activeTab || (availableTabsLocal.length > 0 ? availableTabsLocal[0].value : "");
-     if (!activeTab && currentActiveTab) { // Establecer activeTab si aún no está definido
-        setActiveTab(currentActiveTab);
+  }, [authLoading, isAuthenticated, userProfile, router]);
+
+  useEffect(() => {
+    if (authLoading || !userProfile) {
+      return;
     }
 
+    if (availableTabs.length > 0) {
+      const currentActiveTabIsValid = activeTab && availableTabs.some(t => t.value === activeTab);
+      if (!currentActiveTabIsValid) {
+        setActiveTab(availableTabs[0].value);
+      }
+    } else {
+      if (activeTab !== undefined) {
+        setActiveTab(undefined);
+      }
+      setDashboardPageLoading(false);
+    }
+  }, [availableTabs, authLoading, userProfile, activeTab]);
+
+  useEffect(() => {
+    if (authLoading || !userProfile || !activeTab) {
+      if (!authLoading && userProfile && availableTabs.length > 0 && !activeTab) {
+        setDashboardPageLoading(true);
+      } else if (!authLoading && userProfile && availableTabs.length === 0) {
+        setDashboardPageLoading(false);
+      }
+      return;
+    }
 
     const loadDashboardData = async () => {
-      if (!currentActiveTab) return; // No cargar si no hay pestaña activa
+      setDashboardPageLoading(true);
 
-      setPageLoading(true);
-      console.log("loadDashboardData: Cargando datos para la pestaña:", currentActiveTab);
-      
-      if (currentActiveTab === "manage-classes") {
-        await fetchClassesForDashboard();
-        if (userProfile.role === 'admin') { 
-            await fetchAllUsersForAdmin(); // Esto es para el selector de entrenadores en el form de clases
+      try {
+        if (activeTab === "manage-classes") {
+          await fetchClassesForDashboard();
+          if (userProfile.role === 'admin') {
+            await fetchAllUsersForAdmin(); // Esto ya carga clientes y entrenadores
+          }
+        } else if (activeTab === "manage-products" && userProfile.role === 'admin') {
+          await fetchProductsForDashboard();
+        } else if (activeTab === "manage-cash-flow" && userProfile.role === 'admin') {
+          await fetchCashTransactionsForDashboard();
+        } else if (activeTab === "manage-users" && userProfile.role === 'admin') {
+          await fetchAllUsersForAdmin();
+        } else if (activeTab === "manage-attendance") {
+          if(userProfile.role === 'admin') await fetchAllUsersForAdmin(); // Para cargar los clientes si es admin
+          else { // Si es trainer, solo necesita su propia info y la de los clientes
+            const clients = allUsersForAdminState.filter(u => u.role === 'client').sort((a,b) => a.name.localeCompare(b.name));
+            if(clients.length > 0) setAllClientsForAttendance(clients);
+            else { // Si no hay clientes en el estado general (porque no es admin o no se cargaron aún)
+                 const usersCollectionRef = collection(db, "users");
+                 const q = query(usersCollectionRef, where("role", "==", "client"));
+                 const querySnapshot = await getDocs(q);
+                 const clientList: UserProfile[] = [];
+                 querySnapshot.forEach((doc) => {
+                    clientList.push({ id: doc.id, ...(doc.data() as UserProfile) });
+                 });
+                 setAllClientsForAttendance(clientList.sort((a,b) => a.name.localeCompare(b.name)));
+            }
+          }
+          await fetchDailyAttendances();
         }
-      } else if (currentActiveTab === "manage-users") {
-        if (userProfile.role === 'admin') {
-          await fetchAllUsersForAdmin(); // Esto carga allUsersForAdminState Y availableTrainers
-        }
+      } catch (error) {
+        console.error(`[TrainerDashboard] Error loading data for tab ${activeTab}:`, error);
+        toast({ title: "Error al Cargar Datos", description: `No se pudieron cargar datos para ${activeTab}.`, variant: "destructive" });
+      } finally {
+        setDashboardPageLoading(false);
       }
-      setPageLoading(false);
-      console.log("loadDashboardData: Carga completada.");
     };
 
-    if (currentActiveTab) {
-      loadDashboardData();
-    }
-
-  }, [currentUser, userProfile, isAuthenticated, authLoading, router, fetchClassesForDashboard, fetchAllUsersForAdmin, activeTab]);
+    loadDashboardData();
+  }, [activeTab, userProfile, authLoading, fetchClassesForDashboard, fetchProductsForDashboard, fetchCashTransactionsForDashboard, fetchAllUsersForAdmin, fetchDailyAttendances, availableTabs, toast, allUsersForAdminState]);
 
 
   const handleOpenAddClassDialog = () => setIsAddClassDialogOpen(true);
   const handleCloseAddClassDialog = async (reloadData = false) => {
     setIsAddClassDialogOpen(false);
     if (reloadData) {
-      setPageLoading(true);
       await fetchClassesForDashboard();
-      if (userProfile?.role === 'admin') { // Si es admin, los entrenadores se recargan con fetchAllUsersForAdmin
+      if (userProfile?.role === 'admin') {
         await fetchAllUsersForAdmin();
       }
-      setPageLoading(false);
     }
   };
 
   const handleSaveNewClass = async (data: AddClassFormValues, trainerName: string) => {
     if (!currentUser || !userProfile) return;
-
     const newClassData = {
       ...data,
       trainerId: userProfile.role === 'admin' ? data.trainerId : currentUser.uid,
       trainerName: trainerName,
     };
     const addedClass = await addClassToDB(newClassData);
-
     if (addedClass) {
-      toast({ title: "Clase Añadida", description: `La clase "${addedClass.name}" ha sido añadida con éxito.` });
+      toast({ title: "Clase Añadida", description: `La clase "${addedClass.name}" ha sido añadida.` });
       await handleCloseAddClassDialog(true);
     } else {
       toast({ title: "Error", description: "No se pudo añadir la clase.", variant: "destructive" });
@@ -203,43 +337,37 @@ export default function TrainerDashboardPage() {
     setEditingClass(classItem);
     setIsEditClassDialogOpen(true);
   };
-
   const handleCloseEditClassDialog = async (reloadData = false) => {
     setIsEditClassDialogOpen(false);
     setEditingClass(null);
     if (reloadData) {
-      setPageLoading(true);
       await fetchClassesForDashboard();
       if (userProfile?.role === 'admin') {
         await fetchAllUsersForAdmin();
       }
-      setPageLoading(false);
     }
   };
 
   const handleSaveEditedClass = async (data: AddClassFormValues, trainerName: string) => {
     if (!editingClass || !currentUser || !userProfile) return;
-
     const updatedClassData = {
       ...data,
       trainerId: userProfile.role === 'admin' ? data.trainerId : editingClass.trainerId,
       trainerName,
     };
     const payload: Omit<ClassOffering, 'id'> = {
-        name: updatedClassData.name,
-        trainerId: updatedClassData.trainerId,
-        trainerName: updatedClassData.trainerName,
-        day: updatedClassData.day,
-        time: updatedClassData.time,
-        duration: updatedClassData.duration,
-        capacity: updatedClassData.capacity,
-        booked: editingClass.booked, 
-        description: updatedClassData.description,
-        category: updatedClassData.category,
+      name: updatedClassData.name,
+      trainerId: updatedClassData.trainerId,
+      trainerName: updatedClassData.trainerName,
+      day: updatedClassData.day,
+      time: updatedClassData.time,
+      duration: updatedClassData.duration,
+      capacity: updatedClassData.capacity,
+      booked: editingClass.booked,
+      description: updatedClassData.description,
+      category: updatedClassData.category,
     };
-
     const success = await updateClassInDB(editingClass.id, payload);
-
     if (success) {
       toast({ title: "Clase Actualizada", description: `La clase "${payload.name}" ha sido actualizada.` });
       await handleCloseEditClassDialog(true);
@@ -251,22 +379,111 @@ export default function TrainerDashboardPage() {
 
   const handleDeleteClass = (classItem: ClassOffering) => {
     setClassToDelete(classItem);
-    setIsDeleteConfirmOpen(true);
+    setIsDeleteClassConfirmOpen(true);
   };
-
   const confirmDeleteClass = async () => {
     if (!classToDelete) return;
     const success = await deleteClassFromDB(classToDelete.id);
     if (success) {
-      toast({ title: "Clase Eliminada", description: `La clase "${classToDelete.name}" ha sido eliminada.`});
+      toast({ title: "Clase Eliminada", description: `La clase "${classToDelete.name}" ha sido eliminada.` });
     } else {
       toast({ title: "Error", description: "No se pudo eliminar la clase.", variant: "destructive" });
     }
-    setIsDeleteConfirmOpen(false);
+    setIsDeleteClassConfirmOpen(false);
     setClassToDelete(null);
-    setPageLoading(true);
     await fetchClassesForDashboard();
-    setPageLoading(false);
+  };
+
+  const handleOpenAddProductDialog = () => setIsAddProductDialogOpen(true);
+  const handleCloseAddProductDialog = async (reloadData = false) => {
+    setIsAddProductDialogOpen(false);
+    if (reloadData && userProfile?.role === 'admin') {
+      await fetchProductsForDashboard();
+    }
+  };
+
+  const handleSaveNewProduct = async (data: AddProductFormValues) => {
+    if (userProfile?.role !== 'admin') return;
+    setIsSavingProduct(true);
+    const addedProduct = await addProductToDB(data);
+    if (addedProduct) {
+      toast({ title: "Producto Añadido", description: `El producto "${addedProduct.name}" ha sido añadido.` });
+      await handleCloseAddProductDialog(true);
+    } else {
+      toast({ title: "Error", description: "No se pudo añadir el producto.", variant: "destructive" });
+      await handleCloseAddProductDialog(false);
+    }
+    setIsSavingProduct(false);
+  };
+
+  const handleOpenEditProductDialog = (productItem: Product) => {
+    setEditingProduct(productItem);
+    setIsEditProductDialogOpen(true);
+  };
+  const handleCloseEditProductDialog = async (reloadData = false) => {
+    setIsEditProductDialogOpen(false);
+    setEditingProduct(null);
+    if (reloadData && userProfile?.role === 'admin') {
+      await fetchProductsForDashboard();
+    }
+  };
+
+  const handleSaveEditedProduct = async (data: AddProductFormValues) => {
+    if (!editingProduct || userProfile?.role !== 'admin') return;
+    setIsSavingProduct(true);
+    const success = await updateProductInDB(editingProduct.id, data);
+    if (success) {
+      toast({ title: "Producto Actualizado", description: `El producto "${data.name}" ha sido actualizado.` });
+      await handleCloseEditProductDialog(true);
+    } else {
+      toast({ title: "Error", description: "No se pudo actualizar el producto.", variant: "destructive" });
+      await handleCloseEditProductDialog(false);
+    }
+    setIsSavingProduct(false);
+  };
+
+  const handleDeleteProduct = (productItem: Product) => {
+    setProductToDelete(productItem);
+    setIsDeleteProductConfirmOpen(true);
+  };
+  const confirmDeleteProduct = async () => {
+    if (!productToDelete || userProfile?.role !== 'admin') return;
+    const success = await deleteProductFromDB(productToDelete.id);
+    if (success) {
+      toast({ title: "Producto Eliminado", description: `El producto "${productToDelete.name}" ha sido eliminada.` });
+    } else {
+      toast({ title: "Error", description: "No se pudo eliminar el producto.", variant: "destructive" });
+    }
+    setIsDeleteProductConfirmOpen(false);
+    setProductToDelete(null);
+    await fetchProductsForDashboard();
+  };
+
+  const handleOpenAddCashTransactionDialog = () => setIsAddCashTransactionDialogOpen(true);
+  const handleCloseAddCashTransactionDialog = async (reloadData = false) => {
+    setIsAddCashTransactionDialogOpen(false);
+    if (reloadData && userProfile?.role === 'admin') {
+      await fetchCashTransactionsForDashboard();
+    }
+  };
+
+  const handleSaveNewCashTransaction = async (data: AddCashTransactionFormValues) => {
+    if (!currentUser || !userProfile || userProfile.role !== 'admin') return;
+    setIsSavingCashTransaction(true);
+    const transactionPayload: Omit<CashTransaction, 'id' | 'date' | 'recordedByUserId' | 'recordedByUserName'> = {
+      type: data.type,
+      amount: data.amount,
+      description: data.description,
+    };
+    const addedTransaction = await addCashTransactionToDB(transactionPayload, currentUser.uid, userProfile.name);
+    if (addedTransaction) {
+      toast({ title: "Transacción Registrada", description: `Se ha registrado un ${data.type === 'income' ? 'ingreso' : 'egreso'} de $${data.amount.toFixed(2)}.` });
+      await handleCloseAddCashTransactionDialog(true);
+    } else {
+      toast({ title: "Error", description: "No se pudo registrar la transacción.", variant: "destructive" });
+      await handleCloseAddCashTransactionDialog(false);
+    }
+    setIsSavingCashTransaction(false);
   };
 
   const handleChangeUserRole = async (userIdToChange: string, newRole: 'client' | 'trainer') => {
@@ -275,407 +492,542 @@ export default function TrainerDashboardPage() {
       return;
     }
     if (currentUser.uid === userIdToChange) {
-        toast({ title: "Acción no permitida", description: "Los administradores no pueden cambiar su propio rol desde esta interfaz.", variant: "destructive" });
-        return;
+      toast({ title: "Acción no permitida", description: "Los administradores no pueden cambiar su propio rol.", variant: "destructive" });
+      return;
     }
-
     setIsUpdatingRole(prev => ({ ...prev, [userIdToChange]: true }));
-    
     const userToUpdate = await getUserProfileFromDB(userIdToChange);
     if (!userToUpdate) {
-      toast({ title: "Error", description: "Usuario no encontrado en Firestore.", variant: "destructive" });
+      toast({ title: "Error", description: "Usuario no encontrado.", variant: "destructive" });
       setIsUpdatingRole(prev => ({ ...prev, [userIdToChange]: false }));
       return;
     }
-
     const updatedProfileData: UserProfile = { ...userToUpdate, role: newRole };
     const success = await saveUserProfileToDB(updatedProfileData);
-
     if (success) {
-      toast({
-        title: "Rol Actualizado",
-        description: `${userToUpdate.name} ahora es ${newRole === 'trainer' ? 'Entrenador/a' : 'Cliente'}.`,
-      });
-      // Actualizar el estado local para reflejar el cambio en la UI
-      setAllUsersForAdminState(prevUsers => 
-        prevUsers.map(u => 
-          u.id === userIdToChange ? { ...u, role: newRole } : u
-        )
-      );
-      // Actualizar la lista de entrenadores disponibles
+      toast({ title: "Rol Actualizado", description: `${userToUpdate.name} ahora es ${newRole}.` });
+      setAllUsersForAdminState(prevUsers => prevUsers.map(u => u.id === userIdToChange ? { ...u, role: newRole } : u));
       if (newRole === 'trainer') {
-        // Añadir o actualizar en availableTrainers
-        const existingTrainerIndex = availableTrainers.findIndex(t => t.id === userIdToChange);
-        const newTrainerData = { 
-            id: userToUpdate.id, 
-            name: userToUpdate.name, 
-            email: userToUpdate.email,
-            specialty: userToUpdate.specialty || 'Entrenador/a', 
-            bio: userToUpdate.bio || 'Biografía pendiente.',
-            imageUrl: userToUpdate.imageUrl || `https://placehold.co/100x100.png?text=${userToUpdate.name.split(' ').map(n=>n[0]).join('')}`
-        };
-        if (existingTrainerIndex > -1) {
-            setAvailableTrainers(prev => prev.map((t, i) => i === existingTrainerIndex ? newTrainerData : t));
-        } else {
-            setAvailableTrainers(prev => [...prev, newTrainerData]);
-        }
-      } else { 
+        const newTrainerData = { id: userToUpdate.id, name: userToUpdate.name, email: userToUpdate.email, specialty: userToUpdate.specialty || 'Entrenador/a', bio: userToUpdate.bio || 'Biografía pendiente.', imageUrl: userToUpdate.imageUrl || `https://placehold.co/100x100.png?text=${userToUpdate.name.split(' ').map(n => n[0]).join('')}` };
+        setAvailableTrainers(prev => prev.find(t => t.id === userIdToChange) ? prev.map(t => t.id === userIdToChange ? newTrainerData : t) : [...prev, newTrainerData]);
+      } else {
         setAvailableTrainers(prev => prev.filter(t => t.id !== userIdToChange));
       }
+       // Actualizar también allClientsForAttendance
+      if (newRole === 'client') {
+        const clientData = allUsersForAdminState.find(u => u.id === userIdToChange);
+        if (clientData) setAllClientsForAttendance(prev => [...prev, clientData].sort((a,b) => a.name.localeCompare(b.name)));
+      } else { // si se promueve a trainer, quitarlo de clientes
+        setAllClientsForAttendance(prev => prev.filter(c => c.id !== userIdToChange));
+      }
+
     } else {
-      toast({
-        title: "Error al Actualizar Rol",
-        description: `No se pudo cambiar el rol de ${userToUpdate.name}.`,
-        variant: "destructive",
-      });
+      toast({ title: "Error al Actualizar Rol", description: `No se pudo cambiar el rol de ${userToUpdate.name}.`, variant: "destructive" });
     }
     setIsUpdatingRole(prev => ({ ...prev, [userIdToChange]: false }));
   };
 
-  const handleUpdatePaymentDetails = async (userIdToUpdate: string) => {
-    if (!userProfile || userProfile.role !== 'admin') return;
-    if (!localPaymentDetails[userIdToUpdate]) {
-      toast({ title: "Sin cambios", description: "No hay cambios en los detalles de pago para guardar.", variant: "default" });
+  const getPaymentStatusBadge = (status?: UserProfile['paymentStatus']) => {
+    switch (status) {
+      case 'paid': return <Badge variant="default" className="bg-green-500 text-white"><CheckCircle className="mr-1 h-3 w-3" /> Pagado</Badge>;
+      case 'unpaid': return <Badge variant="destructive"><XCircle className="mr-1 h-3 w-3" /> No Pagado</Badge>;
+      case 'pending': default: return <Badge variant="secondary" className="bg-yellow-500 text-black"><AlertCircle className="mr-1 h-3 w-3" /> Pendiente</Badge>;
+    }
+  };
+
+  const handleOpenAddPaymentDialog = (user: UserProfile) => {
+    setSelectedUserForPayment(user);
+    setIsAddPaymentDialogOpen(true);
+  };
+
+  const handleCloseAddPaymentDialog = () => {
+    setIsAddPaymentDialogOpen(false);
+    setSelectedUserForPayment(null);
+  };
+
+  const handleSaveNewPayment = async (data: AddMembershipPaymentFormValues) => {
+    if (!currentUser || !userProfile || userProfile.role !== 'admin' || !selectedUserForPayment) return;
+    setIsSavingPayment(true);
+
+    const paymentPayload: Omit<MembershipPayment, 'id' | 'paymentDate' | 'recordedByUserId' | 'recordedByUserName'> = {
+      userId: selectedUserForPayment.id,
+      userName: selectedUserForPayment.name,
+      amountPaid: data.amountPaid,
+      newPaymentDueDate: formatDateFns(data.newPaymentDueDate, 'yyyy-MM-dd'),
+      paymentMethod: data.paymentMethod,
+      notes: data.notes,
+    };
+
+    const recordedPayment = await addMembershipPaymentToDB(
+      paymentPayload,
+      selectedUserForPayment.id,
+      selectedUserForPayment.name,
+      currentUser.uid,
+      userProfile.name
+    );
+
+    if (recordedPayment) {
+      toast({ title: "Pago Registrado", description: `Pago de ${selectedUserForPayment.name} guardado.` });
+
+      setAllUsersForAdminState(prevUsers =>
+        prevUsers.map(u =>
+          u.id === selectedUserForPayment.id
+            ? { ...u, paymentStatus: 'paid', paymentDueDate: recordedPayment.newPaymentDueDate }
+            : u
+        )
+      );
+      setAllClientsForAttendance(prevClients => prevClients.map(c => c.id === selectedUserForPayment.id ? { ...c, paymentStatus: 'paid', paymentDueDate: recordedPayment.newPaymentDueDate } : c));
+
+
+      const cashTransactionPayload: Omit<CashTransaction, 'id' | 'date' | 'recordedByUserId' | 'recordedByUserName'> = {
+        type: 'income',
+        amount: recordedPayment.amountPaid,
+        description: `Pago de cuota - ${selectedUserForPayment.name}`,
+        relatedMembershipPaymentId: recordedPayment.id,
+      };
+      await addCashTransactionToDB(cashTransactionPayload, currentUser.uid, userProfile.name);
+
+      if (activeTab === 'manage-cash-flow') {
+        await fetchCashTransactionsForDashboard();
+      }
+
+      handleCloseAddPaymentDialog();
+    } else {
+      toast({ title: "Error", description: "No se pudo registrar el pago.", variant: "destructive" });
+    }
+    setIsSavingPayment(false);
+  };
+
+  const handleOpenRecordSaleDialog = () => setIsRecordSaleDialogOpen(true);
+  const handleCloseRecordSaleDialog = async (reloadData = false) => {
+    setIsRecordSaleDialogOpen(false);
+    if (reloadData) {
+      if (userProfile?.role === 'admin' && activeTab === "manage-products") await fetchProductsForDashboard();
+      if (userProfile?.role === 'admin' && activeTab === "manage-cash-flow") await fetchCashTransactionsForDashboard();
+    }
+  };
+
+  const handleSaveNewSale = async (itemsSold: SaleItem[]) => {
+    if (!currentUser || !userProfile || userProfile.role !== 'admin') {
+      toast({ title: "Error de Permiso", description: "Solo administradores pueden registrar ventas.", variant: "destructive" });
+      return;
+    }
+    setIsSavingSale(true);
+    try {
+      const recordedSale = await recordSaleAndUpdateStock(itemsSold, currentUser.uid, userProfile.name);
+      if (recordedSale) {
+        toast({ title: "Venta Registrada", description: `Venta por $${recordedSale.totalAmount.toFixed(2)} registrada con éxito.` });
+
+        const saleItemsDetails = recordedSale.items
+          .map(item => `${item.quantitySold}x ${item.productName}`)
+          .join(', ');
+        const MAX_SALE_DETAILS_LENGTH = 70; 
+        const truncatedSaleDetails = saleItemsDetails.length > MAX_SALE_DETAILS_LENGTH
+                                      ? saleItemsDetails.substring(0, MAX_SALE_DETAILS_LENGTH - 3) + '...'
+                                      : saleItemsDetails;
+
+        const cashTransactionPayload: Omit<CashTransaction, 'id' | 'date' | 'recordedByUserId' | 'recordedByUserName'> = {
+          type: 'income',
+          amount: recordedSale.totalAmount,
+          description: `Venta: ${truncatedSaleDetails} (ID Venta: ${recordedSale.id.substring(0, 6)}...)`,
+          relatedSaleId: recordedSale.id,
+        };
+        await addCashTransactionToDB(cashTransactionPayload, currentUser.uid, userProfile.name);
+
+        await handleCloseRecordSaleDialog(true);
+      }
+    } catch (error: any) {
+      toast({ title: "Error en la Venta", description: error.message || "Ocurrió un error desconocido.", variant: "destructive" });
+    } finally {
+      setIsSavingSale(false);
+    }
+  };
+
+  const handleRegisterAttendance = async () => {
+    if (!currentUser || !userProfile || !selectedClientIdForAttendance) {
+      toast({ title: "Error", description: "Por favor, selecciona un cliente.", variant: "destructive" });
+      return;
+    }
+    setIsRegisteringAttendance(true);
+    const client = allClientsForAttendance.find(c => c.id === selectedClientIdForAttendance);
+    if (!client) {
+      toast({ title: "Error", description: "Cliente no encontrado.", variant: "destructive" });
+      setIsRegisteringAttendance(false);
       return;
     }
 
-    setUpdatingPaymentStates(prev => ({ ...prev, [userIdToUpdate]: true }));
+    const attendancePayload: Omit<Attendance, 'id' | 'checkInTime' | 'date'> = {
+      userId: client.id,
+      userName: client.name,
+      // classId: undefined, // Para asistencia general
+      // className: undefined, // Para asistencia general
+      recordedByUserId: currentUser.uid,
+      recordedByUserName: userProfile.name,
+    };
 
-    const { status, dueDate } = localPaymentDetails[userIdToUpdate];
-    const userDocRef = firestoreDoc(db, 'users', userIdToUpdate);
+    const recordedAttendance = await addAttendanceToDB(attendancePayload, currentUser.uid, userProfile.name);
 
-    try {
-      await updateDoc(userDocRef, {
-        paymentStatus: status,
-        paymentDueDate: dueDate,
-      });
-      toast({ title: "Pago Actualizado", description: "Los detalles de pago del usuario han sido actualizados." });
-      // Actualizar el estado local para reflejar el cambio en la UI
-      setAllUsersForAdminState(prevUsers =>
-        prevUsers.map(u =>
-          u.id === userIdToUpdate ? { ...u, paymentStatus: status, paymentDueDate: dueDate } : u
-        )
-      );
-      // Limpiar los detalles locales para este usuario después de guardar
-      setLocalPaymentDetails(prev => {
-        const newState = { ...prev };
-        delete newState[userIdToUpdate];
-        return newState;
-      });
-    } catch (error) {
-      console.error("Error actualizando detalles de pago:", error);
-      toast({ title: "Error al Actualizar Pago", description: "No se pudieron guardar los cambios.", variant: "destructive" });
-    } finally {
-      setUpdatingPaymentStates(prev => ({ ...prev, [userIdToUpdate]: false }));
+    if (recordedAttendance) {
+      toast({ title: "Asistencia Registrada", description: `Entrada de ${client.name} registrada.` });
+      setDailyAttendances(prev => [recordedAttendance, ...prev]);
+      setSelectedClientIdForAttendance(''); // Resetear selección
+    } else {
+      toast({ title: "Error", description: "No se pudo registrar la asistencia.", variant: "destructive" });
     }
-  };
-
-  // Handler para cambios en los inputs de pago
-  const handlePaymentDetailChange = (userId: string, field: 'status' | 'dueDate', value: string | UserProfile['paymentStatus']) => {
-    setLocalPaymentDetails(prev => ({
-      ...prev,
-      [userId]: {
-        ...prev[userId],
-        status: field === 'status' ? (value as UserProfile['paymentStatus']) : (prev[userId]?.status || allUsersForAdminState.find(u => u.id === userId)?.paymentStatus || 'pending'),
-        dueDate: field === 'dueDate' ? (value as string) : (prev[userId]?.dueDate || allUsersForAdminState.find(u => u.id === userId)?.paymentDueDate || ''),
-      }
-    }));
-  };
-  
-  const getPaymentStatusBadge = (status?: UserProfile['paymentStatus']) => {
-    switch (status) {
-      case 'paid':
-        return <Badge variant="default" className="bg-green-500 text-white"><CheckCircle className="mr-1 h-3 w-3" /> Pagado</Badge>;
-      case 'unpaid':
-        return <Badge variant="destructive"><XCircle className="mr-1 h-3 w-3" /> No Pagado</Badge>;
-      case 'pending':
-      default:
-        return <Badge variant="secondary" className="bg-yellow-500 text-black"><AlertCircle className="mr-1 h-3 w-3" /> Pendiente</Badge>;
-    }
+    setIsRegisteringAttendance(false);
   };
 
 
-  if (authLoading || pageLoading) {
-     return (
+  if (authLoading || (!isAuthenticated && !authLoading && !userProfile)) {
+    return (
       <div className="container mx-auto py-8 animate-pulse">
-        <div className="flex justify-between items-center mb-8">
-          <div className="h-10 w-1/3 bg-muted rounded"></div>
-          <div className="h-10 w-36 bg-muted rounded"></div>
-        </div>
+        <div className="flex justify-between items-center mb-8"><div className="h-10 w-1/3 bg-muted rounded"></div><div className="h-10 w-36 bg-muted rounded"></div></div>
         <div className="h-10 w-1/2 bg-muted rounded mb-6"></div>
-        <Card className="shadow-lg">
-          <CardHeader>
-            <div className="h-8 w-1/4 bg-muted rounded mb-2"></div>
-            <div className="h-5 w-1/2 bg-muted rounded"></div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {[...Array(2)].map((_, i) => (
-              <div key={i} className="flex items-center justify-between p-4 border rounded-lg">
-                <div>
-                  <div className="h-6 w-40 bg-muted rounded mb-1"></div>
-                  <div className="h-4 w-60 bg-muted rounded"></div>
-                </div>
-                <div className="space-x-2">
-                  <div className="h-8 w-8 bg-muted rounded-md inline-block"></div>
-                  <div className="h-8 w-8 bg-muted rounded-md inline-block"></div>
-                </div>
-              </div>
-            ))}
-          </CardContent>
+        <Card className="shadow-lg"><CardHeader><div className="h-8 w-1/4 bg-muted rounded mb-2"></div><div className="h-5 w-1/2 bg-muted rounded"></div></CardHeader>
+          <CardContent className="space-y-4">{[...Array(2)].map((_, i) => (<div key={i} className="flex items-center justify-between p-4 border rounded-lg"><div><div className="h-6 w-40 bg-muted rounded mb-1"></div><div className="h-4 w-60 bg-muted rounded"></div></div><div className="space-x-2"><div className="h-8 w-8 bg-muted rounded-md inline-block"></div><div className="h-8 w-8 bg-muted rounded-md inline-block"></div></div></div>))}</CardContent>
         </Card>
       </div>
-     );
+    );
   }
 
-  if (!userProfile) {
-    return <div className="text-center py-10"><p>Cargando perfil o acceso no autorizado...</p></div>;
+  if (userProfile && userProfile.role !== 'trainer' && userProfile.role !== 'admin') {
+    return <div className="text-center py-10"><p>Cargando...</p></div>;
   }
 
-  const pageTitle = userProfile.role === 'admin' ? "Panel de Administrador" : "Panel de Entrenador/a";
-
-  const TABS_CONFIG = [
-    { value: "manage-classes", label: "Gestionar Clases", icon: ListOrdered, roles: ['admin', 'trainer'] },
-    { value: "manage-users", label: "Gestionar Usuarios y Pagos", icon: UserCog, roles: ['admin'] },
-  ];
-
-  const availableTabs = TABS_CONFIG.filter(tab => userProfile && tab.roles.includes(userProfile.role));
-  const defaultTabValue = activeTab || (availableTabs.length > 0 ? availableTabs[0].value : "");
-
+  const pageTitle = userProfile?.role === 'admin' ? "Panel de Administrador" : "Panel de Entrenador/a";
+  const currentTabForTabsComponent = activeTab || (availableTabs.length > 0 ? availableTabs[0].value : undefined);
 
   return (
     <div className="container mx-auto py-8">
-      <div className="flex justify-between items-center mb-8">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
         <h1 className="text-4xl font-bold text-foreground">{pageTitle}</h1>
-        { (activeTab === "manage-classes" && (userProfile.role === 'admin' || userProfile.role === 'trainer')) && (
-            <Button onClick={handleOpenAddClassDialog} className="bg-accent text-accent-foreground hover:bg-accent/90">
-                <PlusCircle className="mr-2 h-4 w-4" /> Añadir Nueva Clase
+        {userProfile?.role === 'admin' && activeTab === "manage-products" && (
+          <Button onClick={handleOpenAddProductDialog} className="bg-accent text-accent-foreground hover:bg-accent/90 w-full sm:w-auto">
+            <PlusCircle className="mr-2 h-4 w-4" /> Añadir Nuevo Producto
+          </Button>
+        )}
+        {(userProfile?.role === 'admin' || userProfile?.role === 'trainer') && activeTab === "manage-classes" && (
+          <Button onClick={handleOpenAddClassDialog} className="bg-accent text-accent-foreground hover:bg-accent/90 w-full sm:w-auto">
+            <PlusCircle className="mr-2 h-4 w-4" /> Añadir Nueva Clase
+          </Button>
+        )}
+        {userProfile?.role === 'admin' && activeTab === "manage-cash-flow" && (
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            <Button onClick={handleOpenRecordSaleDialog} className="bg-green-600 hover:bg-green-700 text-white w-full sm:w-auto">
+              <ShoppingCart className="mr-2 h-4 w-4" /> Registrar Venta
             </Button>
+            <Button onClick={handleOpenAddCashTransactionDialog} className="bg-accent text-accent-foreground hover:bg-accent/90 w-full sm:w-auto">
+              <PlusCircle className="mr-2 h-4 w-4" /> Registrar Transacción
+            </Button>
+          </div>
         )}
       </div>
 
-      <Tabs value={defaultTabValue} onValueChange={setActiveTab}>
-        <TabsList className={`grid w-full ${availableTabs.length > 1 ? `md:grid-cols-${availableTabs.length}` : 'md:grid-cols-1'} md:w-auto`}>
-          {availableTabs.map(tab => (
-            <TabsTrigger key={tab.value} value={tab.value}>
-              <tab.icon className="mr-2 h-4 w-4" />{tab.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
+      {authLoading && <div className="flex justify-center items-center min-h-[200px]"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>}
 
-        {availableTabs.find(t => t.value === "manage-classes") && (
-            <TabsContent value="manage-classes" className="mt-6">
-                <Card className="shadow-lg">
-                <CardHeader>
-                    <CardTitle>{userProfile.role === 'admin' ? "Todas las Clases" : "Tus Clases"}</CardTitle>
-                    <CardDescription>{userProfile.role === 'admin' ? "Ve, añade, edita o elimina todas las clases programadas." : "Ve, añade, edita o elimina tus clases programadas."}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    {trainerClasses.length > 0 ? (
-                    <div className="space-y-4">
-                        {trainerClasses.map(cls => (
-                        <div key={cls.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-secondary/20 transition-colors">
-                            <div>
-                            <h3 className="font-semibold text-lg text-primary">{cls.name}</h3>
-                            <p className="text-sm text-muted-foreground">{cls.day} a las {cls.time} - {cls.booked}/{cls.capacity} plazas</p>
-                            {userProfile?.role === 'admin' && <p className="text-xs text-muted-foreground">Entrenador/a: {cls.trainerName}</p>}
-                            </div>
-                            <div className="space-x-2">
-                            <Button variant="outline" size="icon" onClick={() => handleOpenEditClassDialog(cls)}>
-                                <Edit3 className="h-4 w-4" />
-                                <span className="sr-only">Editar Clase</span>
-                            </Button>
-                            <Button variant="destructive" size="icon" onClick={() => handleDeleteClass(cls)}>
-                                <Trash2 className="h-4 w-4" />
-                                <span className="sr-only">Eliminar Clase</span>
-                            </Button>
-                            </div>
-                        </div>
-                        ))}
-                    </div>
-                    ) : (
-                    <p className="text-muted-foreground">{pageLoading ? "Cargando clases..." : "No hay clases programadas. ¡Añade una para empezar!"}</p>
-                    )}
-                </CardContent>
-                </Card>
-            </TabsContent>
-        )}
+      {!authLoading && userProfile && availableTabs.length === 0 && (
+        <p className="text-muted-foreground text-center py-8">No hay secciones disponibles para tu rol ({userProfile.role}).</p>
+      )}
 
-        {availableTabs.find(t => t.value === "manage-users") && userProfile?.role === 'admin' && (
-            <TabsContent value="manage-users" className="mt-6">
-                <Card className="shadow-lg">
-                <CardHeader>
-                    <CardTitle>Gestionar Usuarios y Pagos</CardTitle>
-                    <CardDescription>Ve y gestiona los roles y el estado de pago de los usuarios del sistema.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    {allUsersForAdminState.length > 0 ? (
-                    <div className="space-y-4">
-                        {allUsersForAdminState.map(u => {
-                          console.log('Renderizando usuario en Gestionar Usuarios:', JSON.parse(JSON.stringify(u)));
-                          return (
-                            <div key={u.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 border rounded-lg hover:bg-secondary/20 transition-colors">
-                                <div className="flex-grow mb-4 sm:mb-0">
-                                <h3 className="font-semibold text-lg text-foreground">{u.name}</h3>
-                                <p className="text-sm text-muted-foreground">{u.email} - Rol: <span className="font-medium capitalize">{u.role}</span></p>
-                                </div>
-                                <div className="flex items-center space-x-2 flex-shrink-0">
-                                {u.id !== currentUser?.uid && ( 
-                                    <> 
-                                    {u.role === 'client' && (
-                                        <Button
-                                        size="sm"
-                                        onClick={() => handleChangeUserRole(u.id, 'trainer')}
-                                        className="bg-green-600 hover:bg-green-700 text-white"
-                                        disabled={isUpdatingRole[u.id]}
-                                        >
-                                        {isUpdatingRole[u.id] ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowDownUp className="mr-2 h-4 w-4 transform rotate-180" />}
-                                        Promover a Entrenador/a
-                                        </Button>
-                                    )}
-                                    {u.role === 'trainer' && (
-                                        <Button
-                                        size="sm"
-                                        variant="destructive"
-                                        onClick={() => handleChangeUserRole(u.id, 'client')}
-                                        disabled={isUpdatingRole[u.id]}
-                                        >
-                                        {isUpdatingRole[u.id] ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowDownUp className="mr-2 h-4 w-4" />}
-                                        Degradar a Cliente
-                                        </Button>
-                                    )}
-                                    </>
-                                )}
-                                {u.id === currentUser?.uid && ( 
-                                    <Button size="sm" variant="outline" disabled>Rol de Administrador (Actual)</Button>
-                                )}
-                                </div>
+      {!authLoading && userProfile && availableTabs.length > 0 && !currentTabForTabsComponent && !dashboardPageLoading && (
+        <div className="flex justify-center items-center min-h-[200px]"><Loader2 className="h-12 w-12 animate-spin text-primary" /><p className="ml-2">Cargando pestañas...</p></div>
+      )}
 
-                                {u.role === 'client' && (
-                                <div className="mt-4 sm:mt-0 sm:ml-6 p-4 border rounded-md bg-muted/20 space-y-3 w-full sm:w-auto flex-shrink-0">
-                                    <p className="text-sm font-medium text-foreground mb-1">Estado del Pago:</p>
-                                    <div className="mb-3">{getPaymentStatusBadge(u.paymentStatus)}</div>
-                                    
-                                    <div className="space-y-1">
-                                    <Label htmlFor={`payment-status-${u.id}`} className="text-xs">Cambiar Estado</Label>
-                                    <Select
-                                        value={localPaymentDetails[u.id]?.status || u.paymentStatus || 'pending'}
-                                        onValueChange={(value) => handlePaymentDetailChange(u.id, 'status', value as UserProfile['paymentStatus'])}
-                                    >
-                                        <SelectTrigger id={`payment-status-${u.id}`} className="h-9">
-                                        <SelectValue placeholder="Seleccionar estado" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                        <SelectItem value="pending">Pendiente</SelectItem>
-                                        <SelectItem value="paid">Pagado</SelectItem>
-                                        <SelectItem value="unpaid">No Pagado</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                    </div>
+      {!authLoading && userProfile && availableTabs.length > 0 && currentTabForTabsComponent && (
+        <Tabs value={currentTabForTabsComponent} onValueChange={setActiveTab}>
+          <TabsList className="grid w-full grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 mb-6 h-auto flex-wrap justify-start p-1 rounded-md bg-muted">
+            {availableTabs.map(tab => (<TabsTrigger key={tab.value} value={tab.value} className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"><tab.icon className="mr-2 h-4 w-4" />{tab.label}</TabsTrigger>))}
+          </TabsList>
 
-                                    <div className="space-y-1">
-                                    <Label htmlFor={`payment-due-${u.id}`} className="text-xs">Próximo Vencimiento</Label>
-                                    <Input
-                                        id={`payment-due-${u.id}`}
-                                        type="date"
-                                        className="h-9"
-                                        value={localPaymentDetails[u.id]?.dueDate || u.paymentDueDate || ''}
-                                        onChange={(e) => handlePaymentDetailChange(u.id, 'dueDate', e.target.value)}
-                                    />
-                                    </div>
-                                    <Button 
-                                        size="sm" 
-                                        className="w-full mt-2 bg-primary text-primary-foreground hover:bg-primary/90"
-                                        onClick={() => handleUpdatePaymentDetails(u.id)}
-                                        disabled={updatingPaymentStates[u.id] || !localPaymentDetails[u.id]}
-                                    >
-                                        {updatingPaymentStates[u.id] && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                        Actualizar Pago
+          {dashboardPageLoading && activeTab && <div className="flex justify-center items-center min-h-[200px] py-10"><Loader2 className="h-10 w-10 animate-spin text-primary" /><p className="ml-3">Cargando contenido de {availableTabs.find(t => t.value === activeTab)?.label || 'pestaña'}...</p></div>}
+
+          {!dashboardPageLoading && (
+            <>
+              {availableTabs.find(t => t.value === "manage-classes") && (
+                <TabsContent value="manage-classes" className="mt-0">
+                  <Card className="shadow-lg">
+                    <CardHeader><CardTitle>{userProfile.role === 'admin' ? "Todas las Clases" : "Tus Clases"}</CardTitle><CardDescription>{userProfile.role === 'admin' ? "Ve, añade, edita o elimina todas las clases." : "Ve, añade, edita o elimina tus clases."}</CardDescription></CardHeader>
+                    <CardContent>
+                      {trainerClasses.length > 0 ? (<div className="space-y-4">{trainerClasses.map(cls => (<div key={cls.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-secondary/20 transition-colors"><div><h3 className="font-semibold text-lg text-primary">{cls.name}</h3><p className="text-sm text-muted-foreground">{cls.day} a las {cls.time} - {cls.booked}/{cls.capacity} plazas</p>{userProfile?.role === 'admin' && <p className="text-xs text-muted-foreground">Entrenador/a: {cls.trainerName}</p>}</div><div className="space-x-2 flex-shrink-0"><Button variant="outline" size="icon" onClick={() => handleOpenEditClassDialog(cls)}><Edit3 className="h-4 w-4" /><span className="sr-only">Editar</span></Button><Button variant="destructive" size="icon" onClick={() => handleDeleteClass(cls)}><Trash2 className="h-4 w-4" /><span className="sr-only">Eliminar</span></Button></div></div>))}</div>)
+                        : (<p className="text-muted-foreground">No hay clases programadas.</p>)}
+                    </CardContent></Card>
+                </TabsContent>
+              )}
+
+              {availableTabs.find(t => t.value === "manage-products") && userProfile?.role === 'admin' && (
+                <TabsContent value="manage-products" className="mt-0">
+                  <Card className="shadow-lg">
+                    <CardHeader><CardTitle>Productos del Gimnasio</CardTitle><CardDescription>Gestiona el inventario de productos disponibles para la venta.</CardDescription></CardHeader>
+                    <CardContent>
+                      {products.length > 0 ? (
+                        <Table>
+                          <TableHeader><TableRow><TableHead>Nombre</TableHead><TableHead>Descripción</TableHead><TableHead className="text-right">Precio</TableHead><TableHead className="text-right">Stock</TableHead><TableHead>Categoría</TableHead><TableHead className="text-right">Acciones</TableHead></TableRow></TableHeader>
+                          <TableBody>
+                            {products.map(product => (
+                              <TableRow key={product.id}>
+                                <TableCell className="font-medium">{product.name}</TableCell>
+                                <TableCell className="text-xs text-muted-foreground truncate max-w-xs">{product.description || '-'}</TableCell>
+                                <TableCell className="text-right">${product.price.toFixed(2)}</TableCell>
+                                <TableCell className={`text-right ${product.stock < 5 ? 'text-destructive font-semibold' : (product.stock < 20 ? 'text-yellow-600' : '')}`}>{product.stock}</TableCell>
+                                <TableCell>{product.category === "_no_category_" ? "Sin Categoría" : product.category || '-'}</TableCell>
+                                <TableCell className="text-right space-x-2 flex-shrink-0"><Button variant="outline" size="icon" onClick={() => handleOpenEditProductDialog(product)}><Edit3 className="h-4 w-4" /><span className="sr-only">Editar</span></Button><Button variant="destructive" size="icon" onClick={() => handleDeleteProduct(product)}><Trash2 className="h-4 w-4" /><span className="sr-only">Eliminar</span></Button></TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      ) : (<p className="text-muted-foreground">No hay productos añadidos.</p>)}
+                    </CardContent></Card>
+                </TabsContent>
+              )}
+
+              {availableTabs.find(t => t.value === "manage-cash-flow") && userProfile?.role === 'admin' && (
+                <TabsContent value="manage-cash-flow" className="mt-0">
+                  <Card className="mb-6 shadow-md">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2">
+                      <CardTitle className="text-lg font-medium text-primary">Saldo Actual en Caja</CardTitle>
+                      <Button variant="ghost" size="icon" onClick={() => setIsBalanceVisible(!isBalanceVisible)} aria-label={isBalanceVisible ? "Ocultar saldo" : "Mostrar saldo"}>
+                        {isBalanceVisible ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                      </Button>
+                    </CardHeader>
+                    <CardContent>
+                      <div 
+                        className={cn(
+                          "text-3xl font-bold transition-all duration-300 ease-in-out",
+                          !isBalanceVisible && 'filter blur-md select-none'
+                        )}
+                      >
+                        {isBalanceVisible ? `$${cashBalance.toFixed(2)}` : '$∗∗∗∗∗∗∗'}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Saldo calculado de todas las transacciones registradas.
+                      </p>
+                    </CardContent>
+                  </Card>
+                  <Card className="shadow-lg">
+                    <CardHeader><CardTitle>Movimientos de Caja</CardTitle><CardDescription>Registra y visualiza los ingresos y egresos.</CardDescription></CardHeader>
+                    <CardContent>
+                      {cashTransactions.length > 0 ? (
+                        <Table>
+                          <TableHeader><TableRow><TableHead>Fecha</TableHead><TableHead>Tipo</TableHead><TableHead>Descripción</TableHead><TableHead>Registrado por</TableHead><TableHead className="text-right">Monto</TableHead></TableRow></TableHeader>
+                          <TableBody>
+                            {cashTransactions.map(transaction => (
+                              <TableRow key={transaction.id}>
+                                <TableCell className="text-sm text-muted-foreground">{transaction.date.toDate().toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</TableCell>
+                                <TableCell>
+                                  <Badge variant={transaction.type === 'income' ? 'default' : 'destructive'} className={cn(transaction.type === 'income' ? 'bg-green-500 hover:bg-green-600' : 'bg-red-500 hover:bg-red-600', "text-white")}>
+                                    {transaction.type === 'income' ? 'Ingreso' : 'Egreso'}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="font-medium">{transaction.description}</TableCell>
+                                <TableCell className="text-xs text-muted-foreground">{transaction.recordedByUserName || transaction.recordedByUserId}</TableCell>
+                                <TableCell className={`text-right font-semibold ${transaction.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>
+                                  {transaction.type === 'income' ? '+' : '-'}${transaction.amount.toFixed(2)}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      ) : (<p className="text-muted-foreground">No hay transacciones registradas.</p>)}
+                    </CardContent></Card>
+                </TabsContent>
+              )}
+
+              {availableTabs.find(t => t.value === "manage-users") && userProfile?.role === 'admin' && (
+                <TabsContent value="manage-users" className="mt-0">
+                  <Card className="shadow-lg">
+                    <CardHeader><CardTitle>Gestionar Usuarios y Pagos</CardTitle><CardDescription>Administra roles y estado de pago de los usuarios.</CardDescription></CardHeader>
+                    <CardContent>
+                      {allUsersForAdminState.length > 0 ? (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Nombre</TableHead>
+                              <TableHead>Email</TableHead>
+                              <TableHead>Rol</TableHead>
+                              <TableHead>Estado Pago</TableHead>
+                              <TableHead>Vencimiento</TableHead>
+                              <TableHead className="text-right">Acciones</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {allUsersForAdminState.map(u => (
+                              <TableRow key={u.id}>
+                                <TableCell className="font-medium">{u.name}</TableCell>
+                                <TableCell className="text-xs text-muted-foreground">{u.email}</TableCell>
+                                <TableCell className="capitalize">{u.role}</TableCell>
+                                <TableCell>{getPaymentStatusBadge(u.paymentStatus)}</TableCell>
+                                <TableCell>{u.paymentDueDate ? formatDateFns(new Date(u.paymentDueDate + 'T00:00:00'), 'dd/MM/yyyy', { locale: es }) : 'N/A'}</TableCell>
+                                <TableCell className="text-right space-x-1">
+                                  {u.role === 'client' && (
+                                    <Button variant="outline" size="sm" onClick={() => handleOpenAddPaymentDialog(u)} className="text-xs" disabled={isSavingPayment}>
+                                      <CreditCard className="mr-1 h-3 w-3" /> Registrar Pago
                                     </Button>
-                                </div>
-                                )}
-                            </div>
-                          )
-                        })}
-                    </div>
-                    ) : (
-                    <p className="text-muted-foreground">{pageLoading ? "Cargando usuarios..." : "No hay otros usuarios para mostrar o no se han podido cargar."}</p>
-                    )}
-                </CardContent>
-                </Card>
-            </TabsContent>
-        )}
-      </Tabs>
+                                  )}
+                                  {u.id !== currentUser?.uid && (
+                                    <>
+                                      {u.role === 'client' && (
+                                        <Button size="sm" onClick={() => handleChangeUserRole(u.id, 'trainer')} className="bg-green-600 hover:bg-green-700 text-white text-xs" disabled={isUpdatingRole[u.id]}>
+                                          {isUpdatingRole[u.id] ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowDownUp className="h-3 w-3 transform rotate-180" />} Promover
+                                        </Button>
+                                      )}
+                                      {u.role === 'trainer' && (
+                                        <Button size="sm" variant="destructive" onClick={() => handleChangeUserRole(u.id, 'client')} className="text-xs" disabled={isUpdatingRole[u.id]}>
+                                          {isUpdatingRole[u.id] ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowDownUp className="h-3 w-3" />} Degradar
+                                        </Button>
+                                      )}
+                                    </>
+                                  )}
+                                  {u.id === currentUser?.uid && (<Badge variant="secondary">Admin (Tú)</Badge>)}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      ) : (
+                        <p className="text-muted-foreground">No hay otros usuarios para mostrar.</p>
+                      )}
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              )}
 
-      {currentUser && userProfile && (
-        <Dialog open={isAddClassDialogOpen} onOpenChange={(isOpen) => {
-            if (!isOpen) {
-                handleCloseAddClassDialog(false); 
-            } else {
-                setIsAddClassDialogOpen(true);
-            }
-        }}>
-            <DialogContent className="sm:max-w-[600px]">
-                <DialogHeader>
-                <DialogTitle>Añadir Nueva Clase</DialogTitle>
-                <DialogDescription>
-                    Completa los detalles para crear una nueva clase.
-                </DialogDescription>
-                </DialogHeader>
-                <AddClassForm
-                    onSubmit={handleSaveNewClass}
-                    onCancel={() => handleCloseAddClassDialog(false)}
-                    currentUserProfile={userProfile} 
-                    allTrainers={userProfile.role === 'admin' ? availableTrainers : []}
-                />
-            </DialogContent>
+              {availableTabs.find(t => t.value === "manage-attendance") && (
+                <TabsContent value="manage-attendance" className="mt-0">
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <Card className="lg:col-span-1 shadow-lg">
+                      <CardHeader>
+                        <CardTitle>Registrar Entrada</CardTitle>
+                        <CardDescription>Selecciona un cliente para marcar su asistencia.</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div>
+                          <Select
+                            value={selectedClientIdForAttendance}
+                            onValueChange={setSelectedClientIdForAttendance}
+                            disabled={isRegisteringAttendance || allClientsForAttendance.length === 0}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder={allClientsForAttendance.length > 0 ? "Selecciona un cliente" : "No hay clientes"} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {allClientsForAttendance.map(client => (
+                                <SelectItem key={client.id} value={client.id}>
+                                  {client.name} ({client.email})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                           {allClientsForAttendance.length === 0 && <p className="text-xs text-muted-foreground mt-1">Asegúrate de que haya usuarios con rol 'cliente'.</p>}
+                        </div>
+                        <Button 
+                          onClick={handleRegisterAttendance} 
+                          disabled={isRegisteringAttendance || !selectedClientIdForAttendance}
+                          className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
+                        >
+                          {isRegisteringAttendance ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogInIcon className="mr-2 h-4 w-4" />}
+                          {isRegisteringAttendance ? "Registrando..." : "Registrar Entrada"}
+                        </Button>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="lg:col-span-2 shadow-lg">
+                      <CardHeader>
+                        <CardTitle>Asistencias del Día ({formatDateFns(new Date(), 'dd/MM/yyyy')})</CardTitle>
+                        <CardDescription>Entradas registradas hoy.</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        {dailyAttendances.length > 0 ? (
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Cliente</TableHead>
+                                <TableHead>Hora Entrada</TableHead>
+                                <TableHead>Registrado por</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {dailyAttendances.map(att => (
+                                <TableRow key={att.id}>
+                                  <TableCell className="font-medium">{att.userName}</TableCell>
+                                  <TableCell>{att.checkInTime instanceof Timestamp ? formatDateFns(att.checkInTime.toDate(), 'HH:mm:ss') : 'Hora inválida'}</TableCell>
+                                  <TableCell className="text-xs text-muted-foreground">{att.recordedByUserName}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        ) : (
+                          <p className="text-muted-foreground">No hay asistencias registradas hoy.</p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </div>
+                </TabsContent>
+              )}
+            </>
+          )}
+        </Tabs>
+      )}
+
+      {currentUser && userProfile && (<Dialog open={isAddClassDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) handleCloseAddClassDialog(false); else setIsAddClassDialogOpen(true); }}><DialogContent className="sm:max-w-[600px]"><DialogHeader><DialogTitle>Añadir Nueva Clase</DialogTitle><DialogDescription>Completa los detalles para crear una nueva clase.</DialogDescription></DialogHeader><AddClassForm onSubmit={handleSaveNewClass} onCancel={() => handleCloseAddClassDialog(false)} currentUserProfile={userProfile} allTrainers={userProfile.role === 'admin' ? availableTrainers : []} /></DialogContent></Dialog>)}
+      {currentUser && userProfile && editingClass && (<Dialog open={isEditClassDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) handleCloseEditClassDialog(false); else setIsEditClassDialogOpen(true); }}><DialogContent className="sm:max-w-[600px]"><DialogHeader><DialogTitle>Editar Clase</DialogTitle><DialogDescription>Modifica los detalles de la clase.</DialogDescription></DialogHeader><AddClassForm onSubmit={handleSaveEditedClass} onCancel={() => handleCloseEditClassDialog(false)} currentUserProfile={userProfile} allTrainers={userProfile.role === 'admin' ? availableTrainers : []} initialData={editingClass} isEditMode={true} /></DialogContent></Dialog>)}
+      <AlertDialog open={isDeleteClassConfirmOpen} onOpenChange={(isOpen) => { setIsDeleteClassConfirmOpen(isOpen); if (!isOpen) setClassToDelete(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>¿Estás seguro?</AlertDialogTitle><AlertDialogDescription>Esta acción eliminará permanentemente la clase: "{classToDelete?.name}" y sus reservas.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel onClick={() => { setIsDeleteClassConfirmOpen(false); setClassToDelete(null); }}>Cancelar</AlertDialogCancel><AlertDialogAction onClick={confirmDeleteClass} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Eliminar</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+
+      {userProfile?.role === 'admin' && (<Dialog open={isAddProductDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) handleCloseAddProductDialog(false); else setIsAddProductDialogOpen(true); }}><DialogContent className="sm:max-w-[600px]"><DialogHeader><DialogTitle>Añadir Nuevo Producto</DialogTitle><DialogDescription>Completa los detalles para añadir un nuevo producto al inventario.</DialogDescription></DialogHeader><AddProductForm onSubmit={handleSaveNewProduct} onCancel={() => handleCloseAddProductDialog(false)} isSaving={isSavingProduct} /></DialogContent></Dialog>)}
+      {userProfile?.role === 'admin' && editingProduct && (<Dialog open={isEditProductDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) handleCloseEditProductDialog(false); else setIsEditProductDialogOpen(true); }}><DialogContent className="sm:max-w-[600px]"><DialogHeader><DialogTitle>Editar Producto</DialogTitle><DialogDescription>Modifica los detalles del producto.</DialogDescription></DialogHeader><AddProductForm onSubmit={handleSaveEditedProduct} onCancel={() => handleCloseEditProductDialog(false)} initialData={editingProduct} isEditMode={true} isSaving={isSavingProduct} /></DialogContent></Dialog>)}
+      {userProfile?.role === 'admin' && (<AlertDialog open={isDeleteProductConfirmOpen} onOpenChange={(isOpen) => { setIsDeleteProductConfirmOpen(isOpen); if (!isOpen) setProductToDelete(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>¿Estás seguro?</AlertDialogTitle><AlertDialogDescription>Esta acción eliminará permanentemente el producto: "{productToDelete?.name}".</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel onClick={() => { setIsDeleteProductConfirmOpen(false); setProductToDelete(null); }}>Cancelar</AlertDialogCancel><AlertDialogAction onClick={confirmDeleteProduct} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Eliminar</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>)}
+
+      {userProfile?.role === 'admin' && (
+        <Dialog open={isAddCashTransactionDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) handleCloseAddCashTransactionDialog(false); else setIsAddCashTransactionDialogOpen(true); }}>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle>Registrar Transacción de Caja</DialogTitle>
+              <DialogDescription>Añade un nuevo ingreso o egreso.</DialogDescription>
+            </DialogHeader>
+            <AddCashTransactionForm
+              onSubmit={handleSaveNewCashTransaction}
+              onCancel={() => handleCloseAddCashTransactionDialog(false)}
+              isSaving={isSavingCashTransaction}
+            />
+          </DialogContent>
         </Dialog>
       )}
 
-      {currentUser && userProfile && editingClass && (
-        <Dialog open={isEditClassDialogOpen} onOpenChange={(isOpen) => {
-            if (!isOpen) {
-                handleCloseEditClassDialog(false); 
-            } else {
-                setIsEditClassDialogOpen(true);
-            }
-        }}>
-            <DialogContent className="sm:max-w-[600px]">
-                <DialogHeader>
-                <DialogTitle>Editar Clase</DialogTitle>
-                <DialogDescription>
-                    Modifica los detalles de la clase.
-                </DialogDescription>
-                </DialogHeader>
-                <AddClassForm
-                    onSubmit={handleSaveEditedClass}
-                    onCancel={() => handleCloseEditClassDialog(false)}
-                    currentUserProfile={userProfile} 
-                    allTrainers={userProfile.role === 'admin' ? availableTrainers : []}
-                    initialData={editingClass}
-                    isEditMode={true}
-                />
-            </DialogContent>
+      {userProfile?.role === 'admin' && selectedUserForPayment && (
+        <Dialog open={isAddPaymentDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) handleCloseAddPaymentDialog(); else setIsAddPaymentDialogOpen(true); }}>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle>Registrar Pago de Cuota</DialogTitle>
+              <DialogDescription>Completa los detalles del pago de membresía para {selectedUserForPayment.name}.</DialogDescription>
+            </DialogHeader>
+            <AddMembershipPaymentForm
+              onSubmit={handleSaveNewPayment}
+              onCancel={handleCloseAddPaymentDialog}
+              isSaving={isSavingPayment}
+              clientName={selectedUserForPayment.name}
+              currentDueDate={selectedUserForPayment.paymentDueDate}
+            />
+          </DialogContent>
         </Dialog>
       )}
 
-      <AlertDialog open={isDeleteConfirmOpen} onOpenChange={(isOpen) => {
-          setIsDeleteConfirmOpen(isOpen);
-          if (!isOpen) setClassToDelete(null); 
-      }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>¿Estás seguro?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Esta acción no se puede deshacer. Esto eliminará permanentemente la clase: "{classToDelete?.name}" y cancelará todas sus reservas confirmadas.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => {setIsDeleteConfirmOpen(false); setClassToDelete(null);}}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDeleteClass} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Eliminar</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
+      {userProfile?.role === 'admin' && (
+        <Dialog open={isRecordSaleDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) handleCloseRecordSaleDialog(false); else setIsRecordSaleDialogOpen(true); }}>
+          <DialogContent className="sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Registrar Nueva Venta</DialogTitle>
+              <DialogDescription>Selecciona productos y cantidades para registrar una venta.</DialogDescription>
+            </DialogHeader>
+            <RecordSaleForm
+              onSubmit={handleSaveNewSale}
+              onCancel={() => handleCloseRecordSaleDialog(false)}
+              isSaving={isSavingSale}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
+
+
+    
