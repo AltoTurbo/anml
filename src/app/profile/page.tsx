@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { UserCircle, Mail, ShieldCheck, LogOut, Edit, Loader2, Sparkles, Info } from "lucide-react"; // Added Sparkles, Info
+import { UserCircle, Mail, ShieldCheck, LogOut, Edit, Loader2, Sparkles, Info, Phone } from "lucide-react";
 import { useToast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import EditProfileForm, { type EditProfileFormValues } from '@/components/forms/EditProfileForm';
@@ -34,7 +34,7 @@ export default function ProfilePage() {
   const handleSaveProfile = async (data: EditProfileFormValues) => {
     if (currentUser && userProfile) {
       setIsSavingProfile(true);
-      const detailsToUpdate: Partial<EditProfileFormValues> = { name: data.name };
+      const detailsToUpdate: Partial<EditProfileFormValues> = { name: data.name, phone: data.phone };
       if (userProfile.role === 'trainer') {
         detailsToUpdate.specialty = data.specialty;
         detailsToUpdate.bio = data.bio;
@@ -108,6 +108,13 @@ export default function ProfilePage() {
             </div>
           </div>
           <div className="flex items-center space-x-3 p-3 border rounded-md">
+            <Phone className="h-6 w-6 text-primary" />
+            <div>
+              <p className="text-sm text-muted-foreground">Teléfono</p>
+              <p className="font-medium text-foreground">{userProfile.phone || "No especificado"}</p>
+            </div>
+          </div>
+          <div className="flex items-center space-x-3 p-3 border rounded-md">
             <ShieldCheck className="h-6 w-6 text-primary" />
             <div>
               <p className="text-sm text-muted-foreground">Rol</p>
@@ -158,6 +165,7 @@ export default function ProfilePage() {
               onCancel={() => setIsEditDialogOpen(false)}
               initialData={{ 
                 name: userProfile.name, 
+                phone: userProfile.phone,
                 specialty: userProfile.specialty,
                 bio: userProfile.bio 
               }}
