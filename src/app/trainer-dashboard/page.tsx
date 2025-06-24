@@ -12,13 +12,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   type ClassOffering,
   addClassToDB,
   getClassOfferingsFromDB,
@@ -37,19 +30,20 @@ import {
   getCashTransactionsFromDB,
   type MembershipPayment,
   addMembershipPaymentToDB,
-  paymentMethods,
-  type SaleItem,
   recordSaleAndUpdateStock,
+  type SaleItem,
   type Attendance,
   addAttendanceToDB,
   getDailyAttendancesFromDB,
-} from '@/lib/mockData';
+  getMonthlyAttendanceCounts,
+  getAttendancesForUserFromDB, // Importar nueva función
+} from '@/lib/firestore';
 import AddClassForm, { type AddClassFormValues } from '@/components/forms/AddClassForm';
 import AddProductForm, { type AddProductFormValues } from '@/components/forms/AddProductForm';
 import AddCashTransactionForm, { type AddCashTransactionFormValues } from '@/components/forms/AddCashTransactionForm';
 import AddMembershipPaymentForm, { type AddMembershipPaymentFormValues } from '@/components/forms/AddMembershipPaymentForm';
 import RecordSaleForm from '@/components/forms/RecordSaleForm';
-import { PlusCircle, Edit3, Trash2, UserCog, ListOrdered, ArrowDownUp, Loader2, CreditCard, CheckCircle, XCircle, AlertCircle, PackageSearch, ShoppingBag, Landmark, ShoppingCart, Eye, EyeOff, UserCheck, LogIn as LogInIcon } from 'lucide-react';
+import { PlusCircle, Edit3, Trash2, UserCog, ListOrdered, ArrowDownUp, Loader2, CreditCard, CheckCircle, XCircle, AlertCircle, ShoppingBag, Landmark, ShoppingCart, Eye, EyeOff, UserCheck, LogIn as LogInIcon, BarChart2, Medal, History } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { UserProfile } from '@/contexts/AuthContext';
 import { Badge } from '@/components/ui/badge';
@@ -57,13 +51,17 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { format as formatDateFns } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from "@/lib/utils";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import ReportsTab from '@/components/admin/ReportsTab';
 
 const TABS_CONFIG = [
   { value: "manage-classes", label: "Gestionar Clases", icon: ListOrdered, roles: ['admin', 'trainer'] },
   { value: "manage-products", label: "Gestionar Productos", icon: ShoppingBag, roles: ['admin'] },
-  { value: "manage-cash-flow", label: "Gestión de Caja", icon: Landmark, roles: ['admin'] },
+  { value: "manage-cash-flow", label: "Ventas y Caja", icon: Landmark, roles: ['admin', 'trainer'] },
   { value: "manage-users", label: "Usuarios y Pagos", icon: UserCog, roles: ['admin'] },
   { value: "manage-attendance", label: "Registro de Asistencias", icon: UserCheck, roles: ['admin', 'trainer'] },
+  { value: "attendance-ranking", label: "Ranking Asistencias", icon: Medal, roles: ['admin', 'trainer'] },
+  { value: "reports", label: "Reportes", icon: BarChart2, roles: ['admin'] },
 ];
 
 export default function TrainerDashboardPage() {
@@ -108,10 +106,40 @@ export default function TrainerDashboardPage() {
   const [dailyAttendances, setDailyAttendances] = useState<Attendance[]>([]);
   const [selectedClientIdForAttendance, setSelectedClientIdForAttendance] = useState<string>('');
   const [isRegisteringAttendance, setIsRegisteringAttendance] = useState(false);
+  
+  const [monthlyAttendances, setMonthlyAttendances] = useState<Record<string, { userName: string; count: number }>>({});
+
+  const [isAttendanceHistoryDialogOpen, setIsAttendanceHistoryDialogOpen] = useState(false);
+  const [selectedUserForHistory, setSelectedUserForHistory] = useState<UserProfile | null>(null);
+  const [userAttendanceHistory, setUserAttendanceHistory] = useState<Attendance[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
 
   const [dashboardPageLoading, setDashboardPageLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<string | undefined>(undefined);
+
+  const cleanDescription = (description: string) => {
+    // Removes the (ID Venta: ...) part from the string
+    return description.replace(/\s\(ID Venta: .*\)$/, '');
+  };
+
+  // Effect to clean up history dialog state when it closes
+  useEffect(() => {
+    if (!isAttendanceHistoryDialogOpen) {
+      setSelectedUserForHistory(null);
+      setUserAttendanceHistory([]);
+    }
+  }, [isAttendanceHistoryDialogOpen]);
+
+  const attendanceRanking = useMemo(() => {
+    return Object.entries(monthlyAttendances)
+        .map(([userId, data]) => ({
+            userId,
+            userName: data.userName,
+            count: data.count,
+        }))
+        .sort((a, b) => b.count - a.count);
+  }, [monthlyAttendances]);
 
   const availableTabs = useMemo(() => {
     if (!userProfile || !userProfile.role) {
@@ -147,18 +175,28 @@ export default function TrainerDashboardPage() {
   };
 
   const fetchCashTransactionsForDashboard = useCallback(async () => {
-    if (userProfile?.role !== 'admin') return;
-    const transactionsFromDB = await getCashTransactionsFromDB();
-    const sortedTransactions = transactionsFromDB.sort((a, b) => b.date.toMillis() - a.date.toMillis());
-    setCashTransactions(sortedTransactions);
+    if (!userProfile || !['admin', 'trainer'].includes(userProfile.role)) return;
+
+    if (userProfile.role === 'admin') {
+      const transactionsFromDB = await getCashTransactionsFromDB();
+      const sortedTransactions = transactionsFromDB.sort((a, b) => b.date.toMillis() - a.date.toMillis());
+      setCashTransactions(sortedTransactions);
+    }
+    // Trainers no cargan transacciones, solo tienen acceso a los botones de registro
+  }, [userProfile]);
+
+  const fetchMonthlyAttendanceData = useCallback(async () => {
+      if (!userProfile || !['admin', 'trainer'].includes(userProfile.role)) return;
+      const counts = await getMonthlyAttendanceCounts();
+      setMonthlyAttendances(counts);
   }, [userProfile]);
 
   useEffect(() => {
-    if (activeTab === "manage-cash-flow") {
+    if (activeTab === "manage-cash-flow" && userProfile?.role === 'admin') {
       const balance = calculateCashBalance(cashTransactions);
       setCashBalance(balance);
     }
-  }, [cashTransactions, activeTab]);
+  }, [cashTransactions, activeTab, userProfile?.role]);
 
 
   const fetchAllUsersForAdmin = useCallback(async () => {
@@ -202,12 +240,12 @@ export default function TrainerDashboardPage() {
       setAvailableTrainers(trainersFromFirestore);
     } catch (error) {
       console.error("[TrainerDashboard] fetchAllUsersForAdmin: Error fetching users:", error);
-      toast({ title: "Error al Cargar Usuarios", description: "No se pudieron cargar los usuarios.", variant: "destructive" });
       setAllUsersForAdminState([]);
       setAvailableTrainers([]);
       setAllClientsForAttendance([]);
     }
-  }, [currentUser, userProfile, toast]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser, userProfile?.role]);
 
   const fetchDailyAttendances = useCallback(async () => {
     if (!userProfile || !['admin', 'trainer'].includes(userProfile.role)) return;
@@ -254,65 +292,68 @@ export default function TrainerDashboardPage() {
 
   useEffect(() => {
     if (authLoading || !userProfile || !activeTab) {
-      if (!authLoading && userProfile && availableTabs.length > 0 && !activeTab) {
-        setDashboardPageLoading(true); 
-      } else if (!authLoading && userProfile && availableTabs.length === 0) {
-        setDashboardPageLoading(false); 
-      }
-      return;
+        if (!authLoading && userProfile && availableTabs.length > 0 && !activeTab) {
+            setDashboardPageLoading(true);
+        } else if (!authLoading && userProfile && availableTabs.length === 0) {
+            setDashboardPageLoading(false);
+        }
+        return;
     }
 
     const loadDashboardData = async () => {
-      setDashboardPageLoading(true);
-
-      try {
-        if (activeTab === "manage-classes") {
-          await fetchClassesForDashboard();
-          if (userProfile.role === 'admin') {
-             // Ensure trainers are loaded if admin is managing classes
-            if(availableTrainers.length === 0) await fetchAllUsersForAdmin();
-          }
-        } else if (activeTab === "manage-products" && userProfile.role === 'admin') {
-          await fetchProductsForDashboard();
-        } else if (activeTab === "manage-cash-flow" && userProfile.role === 'admin') {
-          await fetchCashTransactionsForDashboard();
-        } else if (activeTab === "manage-users" && userProfile.role === 'admin') {
-          await fetchAllUsersForAdmin();
-        } else if (activeTab === "manage-attendance") {
-          if(userProfile.role === 'admin') {
-            // For admin, ensure all users (and thus clients) are loaded
-            if(allClientsForAttendance.length === 0 || allUsersForAdminState.length === 0) await fetchAllUsersForAdmin();
-          } else if (userProfile.role === 'trainer') {
-            // For trainer, fetch clients if not already available (e.g. from admin fetch)
-            if(allClientsForAttendance.length === 0) {
-                 const usersCollectionRef = collection(db, "users");
-                 const q = firestoreQuery(usersCollectionRef, where("role", "==", "client"));
-                 const querySnapshot = await getDocs(q);
-                 const clientList: UserProfile[] = [];
-                 querySnapshot.forEach((doc) => {
-                    const data = doc.data() as UserProfile;
-                    if (data.name && data.email && data.role) { // Ensure basic fields exist
-                        clientList.push({ id: doc.id, ...data });
-                    }
-                 });
-                 setAllClientsForAttendance(clientList.sort((a,b) => a.name.localeCompare(b.name)));
+        setDashboardPageLoading(true);
+        try {
+            if (activeTab === "manage-classes") {
+                await fetchClassesForDashboard();
+                if (userProfile.role === 'admin') {
+                    await fetchAllUsersForAdmin();
+                }
+            } else if (activeTab === "manage-products" && userProfile.role === 'admin') {
+                await fetchProductsForDashboard();
+            } else if (activeTab === "manage-cash-flow") {
+                await fetchCashTransactionsForDashboard();
+            } else if (activeTab === "manage-users" && userProfile.role === 'admin') {
+                await fetchAllUsersForAdmin();
+                await fetchMonthlyAttendanceData();
+            } else if (activeTab === "manage-attendance") {
+                if (userProfile.role === 'admin') {
+                    await fetchAllUsersForAdmin();
+                } else if (userProfile.role === 'trainer' && allClientsForAttendance.length === 0) {
+                    const usersCollectionRef = collection(db, "users");
+                    const q = firestoreQuery(usersCollectionRef, where("role", "==", "client"));
+                    const querySnapshot = await getDocs(q);
+                    const clientList: UserProfile[] = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserProfile));
+                    setAllClientsForAttendance(clientList.sort((a, b) => a.name.localeCompare(b.name)));
+                }
+                await fetchDailyAttendances();
+                await fetchMonthlyAttendanceData();
+            } else if (activeTab === 'attendance-ranking') {
+                await fetchMonthlyAttendanceData();
+            } else if (activeTab === "reports" && userProfile.role === 'admin') {
+                // The ReportsTab component handles its own data fetching
             }
-          }
-          await fetchDailyAttendances();
+        } catch (error: any) {
+            console.error(`[TrainerDashboard] Error loading data for tab ${activeTab}:`, error.message, error.stack);
+            toast({ title: "Error al Cargar Datos", description: `No se pudieron cargar datos para ${activeTab}.`, variant: "destructive" });
+        } finally {
+            setDashboardPageLoading(false);
         }
-      } catch (error: any) {
-        console.error(`[TrainerDashboard] Error loading data for tab ${activeTab}:`, error.message, error.stack);
-        toast({ title: "Error al Cargar Datos", description: `No se pudieron cargar datos para ${activeTab}. Detalles: ${error.message}`, variant: "destructive" });
-      } finally {
-        setDashboardPageLoading(false);
-      }
     };
 
     loadDashboardData();
-  // Dependency array simplified to prevent loops. Functions are stable.
-  // `allUsersForAdminState` was removed as it could cause a loop if updated by a function within this effect.
-  // Data fetching functions will use the latest state from their closure.
-  }, [activeTab, userProfile, authLoading, fetchClassesForDashboard, fetchProductsForDashboard, fetchCashTransactionsForDashboard, fetchAllUsersForAdmin, fetchDailyAttendances, availableTabs, toast, availableTrainers.length, allClientsForAttendance.length]);
+  }, [
+      activeTab,
+      userProfile,
+      authLoading,
+      toast,
+      allClientsForAttendance.length,
+      fetchClassesForDashboard,
+      fetchAllUsersForAdmin,
+      fetchProductsForDashboard,
+      fetchCashTransactionsForDashboard,
+      fetchDailyAttendances,
+      fetchMonthlyAttendanceData,
+  ]);
 
 
   const handleOpenAddClassDialog = () => setIsAddClassDialogOpen(true);
@@ -478,19 +519,26 @@ export default function TrainerDashboardPage() {
   };
 
   const handleSaveNewCashTransaction = async (data: AddCashTransactionFormValues) => {
-    if (!currentUser || !userProfile || userProfile.role !== 'admin') return;
+    if (!currentUser || !userProfile || !['admin', 'trainer'].includes(userProfile.role)) {
+      toast({ title: "Error de Permiso", description: "No tienes permiso para registrar esta transacción.", variant: "destructive" });
+      return;
+    }
+  
     setIsSavingCashTransaction(true);
+  
     const transactionPayload: Omit<CashTransaction, 'id' | 'date' | 'recordedByUserId' | 'recordedByUserName'> = {
       type: data.type,
       amount: data.amount,
       description: data.description,
     };
+    
     const addedTransaction = await addCashTransactionToDB(transactionPayload, currentUser.uid, userProfile.name);
+    
     if (addedTransaction) {
-      toast({ title: "Transacción Registrada", description: `Se ha registrado un ${data.type === 'income' ? 'ingreso' : 'egreso'} de $${data.amount.toFixed(2)}.` });
+      toast({ title: "Transacción Registrada", description: `Se ha registrado un ${transactionPayload.type === 'income' ? 'ingreso' : 'egreso'} de $${data.amount.toFixed(2)}.` });
       await handleCloseAddCashTransactionDialog(true);
     } else {
-      toast({ title: "Error", description: "No se pudo registrar la transacción.", variant: "destructive" });
+      toast({ title: "Error", description: "No se pudo registrar la transacción. Por favor, intenta de nuevo.", variant: "destructive" });
       await handleCloseAddCashTransactionDialog(false);
     }
     setIsSavingCashTransaction(false);
@@ -593,13 +641,13 @@ export default function TrainerDashboardPage() {
     setIsRecordSaleDialogOpen(false);
     if (reloadData) {
       if (userProfile?.role === 'admin' && activeTab === "manage-products") await fetchProductsForDashboard();
-      if (userProfile?.role === 'admin' && activeTab === "manage-cash-flow") await fetchCashTransactionsForDashboard();
+      if (activeTab === "manage-cash-flow") await fetchCashTransactionsForDashboard();
     }
   };
 
   const handleSaveNewSale = async (itemsSold: SaleItem[]) => {
-    if (!currentUser || !userProfile || userProfile.role !== 'admin') {
-      toast({ title: "Error de Permiso", description: "Solo administradores pueden registrar ventas.", variant: "destructive" });
+    if (!currentUser || !userProfile || !['admin', 'trainer'].includes(userProfile.role)) {
+      toast({ title: "Error de Permiso", description: "No tienes permiso para registrar ventas.", variant: "destructive" });
       return;
     }
     setIsSavingSale(true);
@@ -619,8 +667,9 @@ export default function TrainerDashboardPage() {
         const cashTransactionPayload: Omit<CashTransaction, 'id' | 'date' | 'recordedByUserId' | 'recordedByUserName'> = {
           type: 'income',
           amount: recordedSale.totalAmount,
-          description: `Venta: ${truncatedSaleDetails} (ID Venta: ${recordedSale.id.substring(0, 6)}...)`,
+          description: `Venta: ${truncatedSaleDetails}`,
           relatedSaleId: recordedSale.id,
+          relatedSaleTotalCost: recordedSale.totalCost,
         };
         await addCashTransactionToDB(cashTransactionPayload, currentUser.uid, userProfile.name);
 
@@ -659,11 +708,30 @@ export default function TrainerDashboardPage() {
       toast({ title: "Asistencia Registrada", description: `Entrada de ${client.name} registrada.` });
       // Optimistically add to local state or re-fetch
       await fetchDailyAttendances();
+      await fetchMonthlyAttendanceData(); // Re-fetch monthly counts
       setSelectedClientIdForAttendance(''); 
     } else {
       toast({ title: "Error", description: "No se pudo registrar la asistencia.", variant: "destructive" });
     }
     setIsRegisteringAttendance(false);
+  };
+  
+  const handleOpenAttendanceHistory = async (user: UserProfile) => {
+    setSelectedUserForHistory(user);
+    setIsAttendanceHistoryDialogOpen(true);
+    setIsLoadingHistory(true);
+    try {
+      const history = await getAttendancesForUserFromDB(user.id);
+      setUserAttendanceHistory(history);
+    } catch (error) {
+      toast({
+        title: "Error al Cargar Historial",
+        description: "No se pudo cargar el historial de asistencias.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoadingHistory(false);
+    }
   };
 
 
@@ -680,9 +748,6 @@ export default function TrainerDashboardPage() {
   }
 
   if (userProfile && userProfile.role !== 'trainer' && userProfile.role !== 'admin') {
-    // This check might be redundant due to the effect hook above, but kept for safety.
-    // The effect hook should redirect if the role is not appropriate.
-    // Showing a loading or placeholder is better than a blank screen if redirection is pending.
     return <div className="text-center py-10"><p>Cargando o acceso no permitido...</p></div>;
   }
 
@@ -703,16 +768,6 @@ export default function TrainerDashboardPage() {
             <PlusCircle className="mr-2 h-4 w-4" /> Añadir Nueva Clase
           </Button>
         )}
-        {userProfile?.role === 'admin' && activeTab === "manage-cash-flow" && (
-          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-            <Button onClick={handleOpenRecordSaleDialog} className="bg-green-600 hover:bg-green-700 text-white w-full sm:w-auto">
-              <ShoppingCart className="mr-2 h-4 w-4" /> Registrar Venta
-            </Button>
-            <Button onClick={handleOpenAddCashTransactionDialog} className="bg-accent text-accent-foreground hover:bg-accent/90 w-full sm:w-auto">
-              <PlusCircle className="mr-2 h-4 w-4" /> Registrar Transacción
-            </Button>
-          </div>
-        )}
       </div>
 
       {authLoading && <div className="flex justify-center items-center min-h-[200px]"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>}
@@ -727,13 +782,13 @@ export default function TrainerDashboardPage() {
 
       {!authLoading && userProfile && availableTabs.length > 0 && currentTabForTabsComponent && (
         <Tabs value={currentTabForTabsComponent} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 mb-6 h-auto flex-wrap justify-start p-1 rounded-md bg-muted">
+          <TabsList className="grid w-full h-auto grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 p-1 rounded-md bg-muted">
             {availableTabs.map(tab => (<TabsTrigger key={tab.value} value={tab.value} className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"><tab.icon className="mr-2 h-4 w-4" />{tab.label}</TabsTrigger>))}
           </TabsList>
 
-          {dashboardPageLoading && activeTab && <div className="flex justify-center items-center min-h-[200px] py-10"><Loader2 className="h-10 w-10 animate-spin text-primary" /><p className="ml-3">Cargando contenido de {availableTabs.find(t => t.value === activeTab)?.label || 'pestaña'}...</p></div>}
+          {dashboardPageLoading && activeTab && !['reports'].includes(activeTab) && <div className="flex justify-center items-center min-h-[200px] py-10"><Loader2 className="h-10 w-10 animate-spin text-primary" /><p className="ml-3">Cargando contenido de {availableTabs.find(t => t.value === activeTab)?.label || 'pestaña'}...</p></div>}
 
-          {!dashboardPageLoading && (
+          {!dashboardPageLoading || (dashboardPageLoading && activeTab === 'reports') ? (
             <>
               {availableTabs.find(t => t.value === "manage-classes") && (
                 <TabsContent value="manage-classes" className="mt-0">
@@ -753,12 +808,13 @@ export default function TrainerDashboardPage() {
                     <CardContent>
                       {products.length > 0 ? (
                         <Table>
-                          <TableHeader><TableRow><TableHead>Nombre</TableHead><TableHead>Descripción</TableHead><TableHead className="text-right">Precio</TableHead><TableHead className="text-right">Stock</TableHead><TableHead>Categoría</TableHead><TableHead className="text-right">Acciones</TableHead></TableRow></TableHeader>
+                          <TableHeader><TableRow><TableHead>Nombre</TableHead><TableHead>Descripción</TableHead><TableHead className="text-right">Costo</TableHead><TableHead className="text-right">Precio</TableHead><TableHead className="text-right">Stock</TableHead><TableHead>Categoría</TableHead><TableHead className="text-right">Acciones</TableHead></TableRow></TableHeader>
                           <TableBody>
                             {products.map(product => (
                               <TableRow key={product.id}>
                                 <TableCell className="font-medium">{product.name}</TableCell>
                                 <TableCell className="text-xs text-muted-foreground truncate max-w-xs">{product.description || '-'}</TableCell>
+                                <TableCell className="text-right">${(product.cost || 0).toFixed(2)}</TableCell>
                                 <TableCell className="text-right">${product.price.toFixed(2)}</TableCell>
                                 <TableCell className={`text-right ${product.stock < 5 ? 'text-destructive font-semibold' : (product.stock < 20 ? 'text-yellow-600' : '')}`}>{product.stock}</TableCell>
                                 <TableCell>{product.category === "_no_category_" ? "Sin Categoría" : product.category || '-'}</TableCell>
@@ -772,55 +828,70 @@ export default function TrainerDashboardPage() {
                 </TabsContent>
               )}
 
-              {availableTabs.find(t => t.value === "manage-cash-flow") && userProfile?.role === 'admin' && (
-                <TabsContent value="manage-cash-flow" className="mt-0">
-                  <Card className="mb-6 shadow-md">
-                    <CardHeader className="flex flex-row items-center justify-between pb-2">
-                      <CardTitle className="text-lg font-medium text-primary">Saldo Actual en Caja</CardTitle>
-                      <Button variant="ghost" size="icon" onClick={() => setIsBalanceVisible(!isBalanceVisible)} aria-label={isBalanceVisible ? "Ocultar saldo" : "Mostrar saldo"}>
-                        {isBalanceVisible ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                      </Button>
+              {availableTabs.find(t => t.value === "manage-cash-flow") && (
+                <TabsContent value="manage-cash-flow" className="mt-0 space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Acciones Rápidas</CardTitle>
+                      <CardDescription>Utiliza los botones para registrar la venta de productos o el cobro de servicios y clases.</CardDescription>
                     </CardHeader>
-                    <CardContent>
-                      <div 
-                        className={cn(
-                          "text-3xl font-bold transition-all duration-300 ease-in-out",
-                          !isBalanceVisible && 'filter blur-md select-none'
-                        )}
-                      >
-                        {isBalanceVisible ? `$${cashBalance.toFixed(2)}` : '$∗∗∗∗∗∗∗'}
-                      </div>
-                       <p className="text-xs text-muted-foreground mt-1">
-                        Saldo calculado de todas las transacciones registradas.
-                      </p>
+                    <CardContent className="flex flex-col sm:flex-row gap-4">
+                      <Button onClick={handleOpenRecordSaleDialog} className="bg-green-600 hover:bg-green-700 text-white">
+                        <ShoppingCart className="mr-2 h-4 w-4" /> Registrar Venta de Producto
+                      </Button>
+                      <Button onClick={handleOpenAddCashTransactionDialog} className="bg-accent text-accent-foreground hover:bg-accent/90">
+                        <PlusCircle className="mr-2 h-4 w-4" /> Registrar {userProfile?.role === 'trainer' ? 'Otro Ingreso' : 'Transacción'}
+                      </Button>
                     </CardContent>
                   </Card>
-                  <Card className="shadow-lg">
-                    <CardHeader><CardTitle>Movimientos de Caja</CardTitle><CardDescription>Registra y visualiza los ingresos y egresos.</CardDescription></CardHeader>
-                    <CardContent>
-                      {cashTransactions.length > 0 ? (
-                        <Table>
-                          <TableHeader><TableRow><TableHead>Fecha</TableHead><TableHead>Tipo</TableHead><TableHead>Descripción</TableHead><TableHead>Registrado por</TableHead><TableHead className="text-right">Monto</TableHead></TableRow></TableHeader>
-                          <TableBody>
-                            {cashTransactions.map(transaction => (
-                              <TableRow key={transaction.id}>
-                                <TableCell className="text-sm text-muted-foreground">{transaction.date.toDate().toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</TableCell>
-                                <TableCell>
-                                  <Badge variant={transaction.type === 'income' ? 'default' : 'destructive'} className={cn(transaction.type === 'income' ? 'bg-green-500 hover:bg-green-600' : 'bg-red-500 hover:bg-red-600', "text-white")}>
-                                    {transaction.type === 'income' ? 'Ingreso' : 'Egreso'}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="font-medium">{transaction.description}</TableCell>
-                                <TableCell className="text-xs text-muted-foreground">{transaction.recordedByUserName || transaction.recordedByUserId}</TableCell>
-                                <TableCell className={`text-right font-semibold ${transaction.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>
-                                  {transaction.type === 'income' ? '+' : '-'}${transaction.amount.toFixed(2)}
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      ) : (<p className="text-muted-foreground">No hay transacciones registradas.</p>)}
-                    </CardContent></Card>
+                  
+                  {userProfile?.role === 'admin' && (
+                    <>
+                      <Card className="shadow-md">
+                        <CardHeader className="flex flex-row items-center justify-between pb-2">
+                          <CardTitle className="text-lg font-medium text-primary">Saldo Actual en Caja</CardTitle>
+                          <Button variant="ghost" size="icon" onClick={() => setIsBalanceVisible(!isBalanceVisible)} aria-label={isBalanceVisible ? "Ocultar saldo" : "Mostrar saldo"}>
+                            {isBalanceVisible ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                          </Button>
+                        </CardHeader>
+                        <CardContent>
+                          <div className={cn("text-3xl font-bold transition-all duration-300 ease-in-out", !isBalanceVisible && 'filter blur-md select-none')}>
+                            {isBalanceVisible ? `$${cashBalance.toFixed(2)}` : '$∗∗∗∗∗∗∗'}
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Saldo calculado de todas las transacciones registradas.
+                          </p>
+                        </CardContent>
+                      </Card>
+                      <Card className="shadow-lg">
+                        <CardHeader><CardTitle>Movimientos de Caja</CardTitle><CardDescription>Visualiza los ingresos y egresos.</CardDescription></CardHeader>
+                        <CardContent>
+                          {cashTransactions.length > 0 ? (
+                            <Table>
+                              <TableHeader><TableRow><TableHead>Fecha</TableHead><TableHead>Tipo</TableHead><TableHead>Descripción</TableHead><TableHead>Registrado por</TableHead><TableHead className="text-right">Monto</TableHead></TableRow></TableHeader>
+                              <TableBody>
+                                {cashTransactions.map(transaction => (
+                                  <TableRow key={transaction.id}>
+                                    <TableCell className="text-sm text-muted-foreground">{transaction.date.toDate().toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</TableCell>
+                                    <TableCell>
+                                      <Badge variant={transaction.type === 'income' ? 'default' : 'destructive'} className={cn(transaction.type === 'income' ? 'bg-green-500 hover:bg-green-600' : 'bg-red-500 hover:bg-red-600', "text-white")}>
+                                        {transaction.type === 'income' ? 'Ingreso' : 'Egreso'}
+                                      </Badge>
+                                    </TableCell>
+                                    <TableCell className="font-medium">{cleanDescription(transaction.description)}</TableCell>
+                                    <TableCell className="text-xs text-muted-foreground">{transaction.recordedByUserName || transaction.recordedByUserId}</TableCell>
+                                    <TableCell className={`text-right font-semibold ${transaction.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>
+                                      {transaction.type === 'income' ? '+' : '-'}${transaction.amount.toFixed(2)}
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          ) : (<p className="text-muted-foreground">No hay transacciones registradas.</p>)}
+                        </CardContent>
+                      </Card>
+                    </>
+                  )}
                 </TabsContent>
               )}
 
@@ -835,9 +906,11 @@ export default function TrainerDashboardPage() {
                             <TableRow>
                               <TableHead>Nombre</TableHead>
                               <TableHead>Email</TableHead>
+                              <TableHead>Teléfono</TableHead>
                               <TableHead>Rol</TableHead>
                               <TableHead>Estado Pago</TableHead>
                               <TableHead>Vencimiento</TableHead>
+                              <TableHead className="text-center">Asistencias (Mes)</TableHead>
                               <TableHead className="text-right">Acciones</TableHead>
                             </TableRow>
                           </TableHeader>
@@ -846,10 +919,15 @@ export default function TrainerDashboardPage() {
                               <TableRow key={u.id}>
                                 <TableCell className="font-medium">{u.name}</TableCell>
                                 <TableCell className="text-xs text-muted-foreground">{u.email}</TableCell>
+                                <TableCell className="text-xs text-muted-foreground">{u.phone || 'N/A'}</TableCell>
                                 <TableCell className="capitalize">{u.role}</TableCell>
                                 <TableCell>{getPaymentStatusBadge(u.paymentStatus)}</TableCell>
                                 <TableCell>{u.paymentDueDate ? formatDateFns(new Date(u.paymentDueDate + 'T00:00:00'), 'dd/MM/yyyy', { locale: es }) : 'N/A'}</TableCell>
+                                <TableCell className="text-center font-semibold text-lg">{monthlyAttendances[u.id]?.count || 0}</TableCell>
                                 <TableCell className="text-right space-x-1">
+                                  <Button variant="outline" size="sm" onClick={() => handleOpenAttendanceHistory(u)} className="text-xs">
+                                      <History className="mr-1 h-3 w-3" /> Historial
+                                  </Button>
                                   {u.role === 'client' && (
                                     <Button variant="outline" size="sm" onClick={() => handleOpenAddPaymentDialog(u)} className="text-xs" disabled={isSavingPayment}>
                                       <CreditCard className="mr-1 h-3 w-3" /> Registrar Pago
@@ -882,7 +960,7 @@ export default function TrainerDashboardPage() {
                   </Card>
                 </TabsContent>
               )}
-
+              
               {availableTabs.find(t => t.value === "manage-attendance") && (
                 <TabsContent value="manage-attendance" className="mt-0">
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -955,7 +1033,62 @@ export default function TrainerDashboardPage() {
                   </div>
                 </TabsContent>
               )}
+
+              {availableTabs.find(t => t.value === "attendance-ranking") && (
+                <TabsContent value="attendance-ranking" className="mt-0">
+                  <Card className="shadow-lg">
+                    <CardHeader>
+                      <CardTitle>Ranking de Asistencia Mensual</CardTitle>
+                      <CardDescription>Clientes con más asistencias en el mes actual ({formatDateFns(new Date(), 'MMMM yyyy', { locale: es })}).</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {attendanceRanking.length > 0 ? (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="w-[80px]">Puesto</TableHead>
+                              <TableHead>Cliente</TableHead>
+                              <TableHead className="text-right">Asistencias</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {attendanceRanking.map((rankingItem, index) => (
+                              <TableRow key={rankingItem.userId}>
+                                <TableCell className="font-bold text-lg text-center">
+                                  {index === 0 ? (
+                                    <Medal className="h-7 w-7 text-yellow-400 inline-block" />
+                                  ) : index === 1 ? (
+                                    <Medal className="h-7 w-7 text-slate-400 inline-block" />
+                                  ) : index === 2 ? (
+                                    <Medal className="h-7 w-7 text-orange-400 inline-block" />
+                                  ) : (
+                                    <span className="text-primary">{index + 1}</span>
+                                  )}
+                                </TableCell>
+                                <TableCell className="font-medium">{rankingItem.userName}</TableCell>
+                                <TableCell className="text-right font-semibold text-lg">{rankingItem.count}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      ) : (
+                        <p className="text-muted-foreground text-center py-6">No hay registros de asistencia para el mes actual.</p>
+                      )}
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              )}
+
+              {availableTabs.find(t => t.value === 'reports') && userProfile?.role === 'admin' && (
+                <TabsContent value="reports" className="mt-0">
+                  <ReportsTab />
+                </TabsContent>
+              )}
             </>
+          ) : (
+            <div className="flex justify-center items-center min-h-[200px] py-10">
+              <Loader2 className="h-10 w-10 animate-spin text-primary" /><p className="ml-3">Cargando...</p>
+            </div>
           )}
         </Tabs>
       )}
@@ -968,17 +1101,20 @@ export default function TrainerDashboardPage() {
       {userProfile?.role === 'admin' && editingProduct && (<Dialog open={isEditProductDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) handleCloseEditProductDialog(false); else setIsEditProductDialogOpen(true); }}><DialogContent className="sm:max-w-[600px]"><DialogHeader><DialogTitle>Editar Producto</DialogTitle><DialogDescription>Modifica los detalles del producto.</DialogDescription></DialogHeader><AddProductForm onSubmit={handleSaveEditedProduct} onCancel={() => handleCloseEditProductDialog(false)} initialData={editingProduct} isEditMode={true} isSaving={isSavingProduct} /></DialogContent></Dialog>)}
       {userProfile?.role === 'admin' && (<AlertDialog open={isDeleteProductConfirmOpen} onOpenChange={(isOpen) => { setIsDeleteProductConfirmOpen(isOpen); if (!isOpen) setProductToDelete(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>¿Estás seguro?</AlertDialogTitle><AlertDialogDescription>Esta acción eliminará permanentemente el producto: "{productToDelete?.name}".</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel onClick={() => { setIsDeleteProductConfirmOpen(false); setProductToDelete(null); }}>Cancelar</AlertDialogCancel><AlertDialogAction onClick={confirmDeleteProduct} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Eliminar</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>)}
 
-      {userProfile?.role === 'admin' && (
+      {userProfile && ['admin', 'trainer'].includes(userProfile.role) && (
         <Dialog open={isAddCashTransactionDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) handleCloseAddCashTransactionDialog(false); else setIsAddCashTransactionDialogOpen(true); }}>
           <DialogContent className="sm:max-w-[500px]">
             <DialogHeader>
-              <DialogTitle>Registrar Transacción de Caja</DialogTitle>
-              <DialogDescription>Añade un nuevo ingreso o egreso.</DialogDescription>
+              <DialogTitle>Registrar {userProfile?.role === 'trainer' ? 'Ingreso en Caja' : 'Transacción de Caja'}</DialogTitle>
+              <DialogDescription>
+                {userProfile?.role === 'trainer' ? 'Añade un nuevo ingreso por cobro de clases o servicios.' : 'Añade un nuevo ingreso o egreso.'}
+              </DialogDescription>
             </DialogHeader>
             <AddCashTransactionForm
               onSubmit={handleSaveNewCashTransaction}
               onCancel={() => handleCloseAddCashTransactionDialog(false)}
               isSaving={isSavingCashTransaction}
+              userRole={userProfile.role}
             />
           </DialogContent>
         </Dialog>
@@ -1002,7 +1138,7 @@ export default function TrainerDashboardPage() {
         </Dialog>
       )}
 
-      {userProfile?.role === 'admin' && (
+      {userProfile && ['admin', 'trainer'].includes(userProfile.role) && (
         <Dialog open={isRecordSaleDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) handleCloseRecordSaleDialog(false); else setIsRecordSaleDialogOpen(true); }}>
           <DialogContent className="sm:max-w-2xl">
             <DialogHeader>
@@ -1017,7 +1153,55 @@ export default function TrainerDashboardPage() {
           </DialogContent>
         </Dialog>
       )}
+
+      {selectedUserForHistory && (
+        <Dialog open={isAttendanceHistoryDialogOpen} onOpenChange={setIsAttendanceHistoryDialogOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Historial de Asistencia</DialogTitle>
+              <DialogDescription>
+                Mostrando todas las entradas registradas para {selectedUserForHistory.name}.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="max-h-[60vh] overflow-y-auto pr-4">
+              {isLoadingHistory ? (
+                <div className="flex justify-center items-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                </div>
+              ) : userAttendanceHistory.length > 0 ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Fecha</TableHead>
+                      <TableHead className="text-right">Hora Entrada</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {userAttendanceHistory.map(att => (
+                      <TableRow key={att.id}>
+                        <TableCell>
+                          {att.checkInTime instanceof Timestamp 
+                            ? formatDateFns(att.checkInTime.toDate(), 'PPP', { locale: es }) 
+                            : 'Fecha inválida'}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {att.checkInTime instanceof Timestamp 
+                            ? formatDateFns(att.checkInTime.toDate(), 'p', { locale: es }) 
+                            : 'Hora inválida'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <p className="text-center text-muted-foreground py-8">
+                  No hay asistencias registradas para este usuario.
+                </p>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
-
