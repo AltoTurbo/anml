@@ -1,8 +1,6 @@
-
-import type {NextConfig} from 'next';
+import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  /* config options here */
   typescript: {
     ignoreBuildErrors: true,
   },
@@ -22,8 +20,25 @@ const nextConfig: NextConfig = {
         hostname: 'i.postimg.cc',
         port: '',
         pathname: '/**',
-      }
+      },
     ],
+  },
+
+  // --- Sección para Webpack ---
+  webpack: (config) => {
+    // Para Handlebars (require.extensions)
+    config.module.rules.push({
+      test: /\.handlebars$/,
+      loader: 'handlebars-loader',
+    });
+
+    // Opcional: Ignora módulos opcionales (como OpenTelemetry si no los usas)
+    config.resolve.fallback = {
+      ...config.resolve.fallback,
+      '@opentelemetry/exporter-jaeger': false,
+    };
+
+    return config;
   },
 };
 
