@@ -1,11 +1,11 @@
-
 "use client";
 
-import { Suspense } from 'react'; // agregalo arriba
+import { Suspense, useState } from 'react';
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
 import Link from 'next/link';
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -16,18 +16,19 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle
+} from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
-// useRouter ya no es necesario aquí para la redirección, se maneja en AuthContext
-// import { useRouter } from "next/navigation";
-// useToast ya no es necesario aquí, se maneja en AuthContext
-// import { useToast } from "@/hooks/use-toast";
 import { LogIn, Loader2 } from "lucide-react";
-import { useState } from "react";
 
 const loginFormSchema = z.object({
   email: z.string().email({ message: "Dirección de correo electrónico inválida." }),
-  password: z.string().min(1, { message: "La contraseña es requerida." }), // Mínimo 1 para que no esté vacío
+  password: z.string().min(1, { message: "La contraseña es requerida." }),
 });
 
 type LoginFormValues = z.infer<typeof loginFormSchema>;
@@ -35,6 +36,8 @@ type LoginFormValues = z.infer<typeof loginFormSchema>;
 export default function LoginPage() {
   const { loginUser, loading } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const searchParams = useSearchParams();
+  const redirectPath = searchParams.get('redirect') || undefined;
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginFormSchema),
@@ -46,9 +49,8 @@ export default function LoginPage() {
 
   async function onSubmit(data: LoginFormValues) {
     setIsSubmitting(true);
-    await loginUser(data.email, data.password);
+    await loginUser(data.email, data.password, redirectPath);
     setIsSubmitting(false);
-    // La redirección y los toasts se manejan dentro de loginUser en AuthContext
   }
 
   return (
@@ -99,7 +101,7 @@ export default function LoginPage() {
           <p className="mt-6 text-center text-sm text-muted-foreground">
             ¿No tienes una cuenta?{' '}
             <Button variant="link" asChild className="text-primary p-0 h-auto">
-              <Link href="/register">
+              <Link href={`/register${redirectPath ? `?redirect=${redirectPath}` : ''}`}>
                 Regístrate aquí
               </Link>
             </Button>

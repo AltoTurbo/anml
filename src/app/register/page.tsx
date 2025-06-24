@@ -1,10 +1,10 @@
-
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
 import Link from 'next/link';
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -15,12 +15,14 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle
+} from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
-// useRouter ya no es necesario aquí para la redirección, se maneja en AuthContext
-// import { useRouter } from "next/navigation"; 
-// useToast ya no es necesario aquí, se maneja en AuthContext
-// import { useToast } from "@/hooks/use-toast";
 import { UserPlus, Loader2 } from "lucide-react";
 import { useState } from "react";
 
@@ -34,8 +36,10 @@ const registerFormSchema = z.object({
 type RegisterFormValues = z.infer<typeof registerFormSchema>;
 
 export default function RegisterPage() {
-  const { registerUser, loading } = useAuth(); 
+  const { registerUser, loading } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const searchParams = useSearchParams();
+  const redirectPath = searchParams.get('redirect') || undefined;
 
   const form = useForm<RegisterFormValues>({
     resolver: zodResolver(registerFormSchema),
@@ -49,9 +53,8 @@ export default function RegisterPage() {
 
   async function onSubmit(data: RegisterFormValues) {
     setIsSubmitting(true);
-    await registerUser(data.email, data.password, data.name, data.phone);
+    await registerUser(data.email, data.password, data.name, data.phone, redirectPath);
     setIsSubmitting(false);
-    // La redirección y los toasts se manejan dentro de registerUser en AuthContext
   }
 
   return (
@@ -127,8 +130,8 @@ export default function RegisterPage() {
           </Form>
           <p className="mt-6 text-center text-sm text-muted-foreground">
             ¿Ya tienes una cuenta?{' '}
-             <Button variant="link" asChild className="text-primary p-0 h-auto">
-              <Link href="/login">
+            <Button variant="link" asChild className="text-primary p-0 h-auto">
+              <Link href={`/login${redirectPath ? `?redirect=${redirectPath}` : ''}`}>
                 Inicia sesión aquí
               </Link>
             </Button>
