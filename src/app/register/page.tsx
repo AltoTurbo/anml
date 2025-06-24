@@ -27,6 +27,7 @@ import { useState } from "react";
 const registerFormSchema = z.object({
   name: z.string().min(2, { message: "El nombre debe tener al menos 2 caracteres." }),
   email: z.string().email({ message: "Dirección de correo electrónico inválida." }),
+  phone: z.string().min(6, { message: "El teléfono debe tener al menos 6 dígitos." }),
   password: z.string().min(6, { message: "La contraseña debe tener al menos 6 caracteres." }),
 });
 
@@ -41,13 +42,14 @@ export default function RegisterPage() {
     defaultValues: {
       name: "",
       email: "",
+      phone: "",
       password: "",
     },
   });
 
   async function onSubmit(data: RegisterFormValues) {
     setIsSubmitting(true);
-    await registerUser(data.email, data.password, data.name);
+    await registerUser(data.email, data.password, data.name, data.phone);
     setIsSubmitting(false);
     // La redirección y los toasts se manejan dentro de registerUser en AuthContext
   }
@@ -86,6 +88,19 @@ export default function RegisterPage() {
                     <FormLabel>Correo Electrónico</FormLabel>
                     <FormControl>
                       <Input placeholder="tu.correo@ejemplo.com" {...field} disabled={loading || isSubmitting} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="phone"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Teléfono</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Tu número de teléfono" {...field} disabled={loading || isSubmitting} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
