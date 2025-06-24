@@ -1,11 +1,12 @@
-
 import { db } from './firebase';
-import { collection, getDocs, addDoc, doc, updateDoc, deleteDoc, query, where, writeBatch, getDoc, setDoc, serverTimestamp, Timestamp, limit, orderBy, runTransaction } from 'firebase/firestore';
+import { 
+  collection, getDocs, addDoc, doc, updateDoc, deleteDoc, query, where, writeBatch, getDoc, setDoc, serverTimestamp, Timestamp, limit, orderBy, runTransaction 
+} from 'firebase/firestore';
 import type { UserProfile } from '@/contexts/AuthContext';
 import { format } from 'date-fns';
 
 export interface ClassOffering {
-  id: string; // Firestore document ID
+  id: string;
   name: string;
   trainerId: string;
   trainerName: string;
@@ -37,7 +38,7 @@ export interface Booking {
 }
 
 export interface Product {
-  id: string; // Firestore document ID
+  id: string;
   name: string;
   description?: string;
   price: number;
@@ -49,61 +50,56 @@ export interface Product {
 }
 
 export interface CashTransaction {
-  id: string; // Firestore document ID
-  type: 'income' | 'expense'; // Ingreso o Egreso
+  id: string;
+  type: 'income' | 'expense';
   amount: number;
   description: string;
-  date: Timestamp; // Fecha y hora de la transacción
-  recordedByUserId: string; // UID del admin/trainer que registró
-  recordedByUserName?: string; // Nombre del admin/trainer
-  relatedSaleId?: string; // Opcional, si es un ingreso por venta de producto
-  relatedMembershipPaymentId?: string; // Opcional, si es un ingreso por pago de cuota
+  date: Timestamp;
+  recordedByUserId: string;
+  recordedByUserName?: string;
+  relatedSaleId?: string;
+  relatedMembershipPaymentId?: string;
 }
 
 export interface MembershipPayment {
-  id: string; // Firestore document ID
-  userId: string; // UID del cliente que pagó
-  userName?: string; // Nombre del cliente
+  id: string;
+  userId: string;
+  userName?: string;
   amountPaid: number;
-  paymentDate: Timestamp; // Fecha y hora del pago
-  newPaymentDueDate: string; // Nueva fecha de vencimiento en formato YYYY-MM-DD
-  paymentMethod?: string; // Efectivo, Tarjeta, etc.
+  paymentDate: Timestamp;
+  newPaymentDueDate: string;
+  paymentMethod?: string;
   notes?: string;
-  recordedByUserId: string; // UID del admin/trainer que registró
-  recordedByUserName?: string; // Nombre del admin/trainer que registró
+  recordedByUserId: string;
+  recordedByUserName?: string;
 }
 
 export interface SaleItem {
   productId: string;
   productName: string;
   quantitySold: number;
-  unitPrice: number; // Precio al momento de la venta
+  unitPrice: number;
   subtotal: number;
 }
 
 export interface Sale {
-  id: string; // Firestore document ID
+  id: string;
   items: SaleItem[];
   totalAmount: number;
   saleDate: Timestamp;
   recordedByUserId: string;
   recordedByUserName?: string;
-  // customerId?: string; // Opcional, para futuras mejoras
 }
-
 
 export interface Attendance {
-  id: string; // Firestore document ID
-  userId: string; // UID del cliente
-  userName: string; // Nombre del cliente
-  // classId?: string; // Opcional, si es asistencia a una clase específica
-  // className?: string; // Opcional
+  id: string;
+  userId: string;
+  userName: string;
   checkInTime: Timestamp;
-  date: string; // Formato YYYY-MM-DD para facilitar consultas por día
-  recordedByUserId: string; // UID del admin/trainer que registró
-  recordedByUserName?: string; // Nombre del admin/trainer
+  date: string;
+  recordedByUserId: string;
+  recordedByUserName?: string;
 }
-
 
 // --- Funciones para Clases (Firestore) ---
 
@@ -148,12 +144,12 @@ export const deleteClassFromDB = async (classId: string): Promise<boolean> => {
     
     const batch = writeBatch(db);
     bookingsSnapshot.forEach(bookingDoc => {
-        batch.delete(bookingDoc.ref);
+      batch.delete(bookingDoc.ref);
     });
     
     const classDocRef = doc(db, 'classes', classId);
     batch.delete(classDocRef);
-    
+
     await batch.commit();
     console.log(`Clase ${classId} y sus ${bookingsSnapshot.size} reservas asociadas han sido eliminadas.`);
     return true;
@@ -162,7 +158,6 @@ export const deleteClassFromDB = async (classId: string): Promise<boolean> => {
     return false;
   }
 };
-
 
 // --- Funciones para Reservas (Firestore) ---
 
@@ -197,7 +192,7 @@ export const addBookingToDB = async (userId: string, classItem: ClassOffering): 
     batch.update(classDocRef, { booked: classItem.booked + 1 });
 
     await batch.commit();
-    
+
     const bookingDateForResponse = new Date().toISOString();
     return { id: bookingDocRef.id, ...newBookingData, bookingDate: bookingDateForResponse } as Booking;
 
@@ -236,21 +231,21 @@ export const cancelBookingInDB = async (bookingId: string, classId: string): Pro
     const bookingSnap = await getDoc(bookingDocRef);
 
     if (bookingSnap.exists() && bookingSnap.data().status === 'confirmed') {
-        batch.update(bookingDocRef, { status: 'cancelled' });
+      batch.update(bookingDocRef, { status: 'cancelled' });
 
-        const classDocRef = doc(db, 'classes', classId);
-        const classSnap = await getDoc(classDocRef);
-        if (classSnap.exists()) {
-          const currentBooked = classSnap.data().booked || 0;
-          if (currentBooked > 0) {
-            batch.update(classDocRef, { booked: currentBooked - 1 });
-          }
+      const classDocRef = doc(db, 'classes', classId);
+      const classSnap = await getDoc(classDocRef);
+      if (classSnap.exists()) {
+        const currentBooked = classSnap.data().booked || 0;
+        if (currentBooked > 0) {
+          batch.update(classDocRef, { booked: currentBooked - 1 });
         }
-        await batch.commit();
-        return true;
+      }
+      await batch.commit();
+      return true;
     } else {
-        console.warn("La reserva no existe o ya está cancelada.");
-        return false;
+      console.warn("La reserva no existe o ya está cancelada.");
+      return false;
     }
   } catch (error) {
     console.error("Error cancelando reserva en Firestore: ", error);
@@ -265,13 +260,13 @@ export const getProductsFromDB = async (): Promise<Product[]> => {
     const productsCol = collection(db, 'products');
     const productSnapshot = await getDocs(query(productsCol, orderBy('name', 'asc')));
     const productList = productSnapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-            id: doc.id,
-            ...data,
-            createdAt: data.createdAt instanceof Timestamp ? data.createdAt : Timestamp.now(), 
-            updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt : Timestamp.now()
-        } as Product;
+      const data = doc.data();
+      return {
+        id: doc.id,
+        ...data,
+        createdAt: data.createdAt instanceof Timestamp ? data.createdAt : Timestamp.now(),
+        updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt : Timestamp.now()
+      } as Product;
     });
     return productList;
   } catch (error) {
@@ -290,10 +285,10 @@ export const addProductToDB = async (productData: Omit<Product, 'id' | 'createdA
     };
     const docRef = await addDoc(collection(db, 'products'), newProductData);
     return {
-        id: docRef.id,
-        ...productData,
-        createdAt: Timestamp.now(), 
-        updatedAt: Timestamp.now()
+      id: docRef.id,
+      ...productData,
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now()
     };
   } catch (error) {
     console.error("Error añadiendo producto a Firestore: ", error);
@@ -331,7 +326,7 @@ export const addCashTransactionToDB = async (
   recordedByUserName?: string
 ): Promise<CashTransaction | null> => {
   try {
-    const newTransactionData: any = { 
+    const newTransactionData: any = {
       ...transactionData,
       date: serverTimestamp(),
       recordedByUserId,
@@ -348,7 +343,7 @@ export const addCashTransactionToDB = async (
     return {
       id: docRef.id,
       ...transactionData,
-      date: Timestamp.now(), 
+      date: Timestamp.now(),
       recordedByUserId,
       recordedByUserName: recordedByUserName || 'Sistema',
     } as CashTransaction;
@@ -361,14 +356,14 @@ export const addCashTransactionToDB = async (
 export const getCashTransactionsFromDB = async (): Promise<CashTransaction[]> => {
   try {
     const transactionsCol = collection(db, 'cashTransactions');
-    const q = query(transactionsCol, orderBy('date', 'desc')); // Ya no hay límite
+    const q = query(transactionsCol, orderBy('date', 'desc'));
     const transactionSnapshot = await getDocs(q);
     const transactionList = transactionSnapshot.docs.map(doc => {
       const data = doc.data();
       return {
         id: doc.id,
         ...data,
-        date: data.date instanceof Timestamp ? data.date : Timestamp.now(), 
+        date: data.date instanceof Timestamp ? data.date : Timestamp.now(),
       } as CashTransaction;
     });
     return transactionList;
@@ -379,6 +374,7 @@ export const getCashTransactionsFromDB = async (): Promise<CashTransaction[]> =>
 };
 
 // --- Funciones para Pagos de Membresía (Firestore) ---
+
 export const addMembershipPaymentToDB = async (
   paymentData: Omit<MembershipPayment, 'id' | 'paymentDate' | 'recordedByUserId' | 'recordedByUserName'>,
   userId: string,
@@ -414,7 +410,7 @@ export const addMembershipPaymentToDB = async (
     return {
       id: paymentDocRef.id,
       ...newPaymentRecord,
-      paymentDate: Timestamp.now(), 
+      paymentDate: Timestamp.now(),
     };
   } catch (error) {
     console.error("Error registrando pago de membresía en Firestore: ", error);
@@ -423,6 +419,7 @@ export const addMembershipPaymentToDB = async (
 };
 
 // --- Funciones para Ventas de Productos (Firestore) ---
+
 export const recordSaleAndUpdateStock = async (
   itemsSold: SaleItem[],
   recordedByUserId: string,
@@ -451,7 +448,6 @@ export const recordSaleAndUpdateStock = async (
       const productReads: Promise<any>[] = [];
       const productRefsAndData: { ref: any, item: SaleItem }[] = [];
 
-      // Phase 1: Prepare to read all product data
       for (const item of itemsSold) {
         const productRef = doc(db, 'products', item.productId);
         productRefsAndData.push({ ref: productRef, item });
@@ -461,7 +457,6 @@ export const recordSaleAndUpdateStock = async (
       const productSnaps = await Promise.all(productReads);
       const updates: { ref: any; newStock: number }[] = [];
 
-      // Phase 1 (cont.): Validate stock based on reads
       for (let i = 0; i < productRefsAndData.length; i++) {
         const { ref: productRef, item } = productRefsAndData[i];
         const productSnap = productSnaps[i];
@@ -479,9 +474,8 @@ export const recordSaleAndUpdateStock = async (
         });
       }
 
-      // Phase 2: Write all data
-      transaction.set(saleDocRef, newSaleData); // Write sale document
-      for (const prodUpdate of updates) { // Write product stock updates
+      transaction.set(saleDocRef, newSaleData);
+      for (const prodUpdate of updates) {
         transaction.update(prodUpdate.ref, { stock: prodUpdate.newStock, updatedAt: serverTimestamp() });
       }
     });
@@ -489,11 +483,12 @@ export const recordSaleAndUpdateStock = async (
     return { id: saleDocRef.id, ...newSaleData, saleDate: Timestamp.now() };
   } catch (error: any) {
     console.error("Error grabando venta y actualizando stock en Firestore: ", error);
-    throw error; 
+    throw error;
   }
 };
 
 // --- Funciones para Asistencias (Firestore) ---
+
 export const addAttendanceToDB = async (
   attendanceData: Omit<Attendance, 'id' | 'checkInTime' | 'date'>,
   recordedByUserId: string,
@@ -512,7 +507,7 @@ export const addAttendanceToDB = async (
     return {
       id: docRef.id,
       ...newAttendanceData,
-      checkInTime: Timestamp.now(), // Para la respuesta inmediata
+      checkInTime: Timestamp.now(),
     };
   } catch (error) {
     console.error("Error añadiendo asistencia a Firestore: ", error);
@@ -523,9 +518,6 @@ export const addAttendanceToDB = async (
 export const getDailyAttendancesFromDB = async (dateString: string): Promise<Attendance[]> => {
   try {
     const attendancesCol = collection(db, 'attendances');
-    // ESTA CONSULTA REQUIERE UN ÍNDICE COMPUESTO EN FIRESTORE:
-    // Colección: attendances, Campos: date (ascendente), checkInTime (descendente)
-    // Firestore normalmente provee un enlace en la consola para crearlo si falla.
     const q = query(attendancesCol, where('date', '==', dateString), orderBy('checkInTime', 'desc'));
     const attendanceSnapshot = await getDocs(q);
     const attendanceList = attendanceSnapshot.docs.map(doc => {
@@ -543,14 +535,13 @@ export const getDailyAttendancesFromDB = async (dateString: string): Promise<Att
   }
 };
 
-
 // --- Tipos de clases para el generador de IA y el formulario de clases ---
+
 export const availableClassTypesForAI = ["Yoga", "HIIT", "Fuerza", "Pilates", "Bootcamp", "Cardio", "Danza", "Boxeo"];
-export const productCategories = ["Bebidas", "Suplementos", "Ropa", "Accesorios", "Otros"];
-export const paymentMethods = ["Efectivo", "Tarjeta de Crédito", "Tarjeta de Débito", "Transferencia", "Otro"];
 
 
 // --- Funciones para perfiles de usuario (se usan en AuthContext y TrainerDashboard) ---
+
 export const getUserProfileFromDB = async (userId: string): Promise<UserProfile | null> => {
   try {
     const userDocRef = doc(db, 'users', userId);
@@ -575,19 +566,12 @@ export const saveUserProfileToDB = async (userData: UserProfile): Promise<boolea
     } else if (typeof dataToSave.createdAt === 'string') {
       dataToSave.createdAt = Timestamp.fromDate(new Date(dataToSave.createdAt));
     }
-    
-    if (!dataToSave.paymentStatus) {
-      dataToSave.paymentStatus = 'pending';
-    }
-    if (!dataToSave.paymentDueDate) {
-      const dueDate = new Date();
-      dueDate.setDate(dueDate.getDate() + 30); 
-      dataToSave.paymentDueDate = dueDate.toISOString().split('T')[0];
-    }
 
     if (dataToSave.specialty === undefined) delete dataToSave.specialty;
     if (dataToSave.bio === undefined) delete dataToSave.bio;
     if (dataToSave.imageUrl === undefined) delete dataToSave.imageUrl;
+    if (dataToSave.paymentStatus === undefined) delete dataToSave.paymentStatus;
+    if (dataToSave.paymentDueDate === undefined) delete dataToSave.paymentDueDate;
     
     await setDoc(userDocRef, dataToSave , { merge: true });
     return true;
@@ -596,5 +580,3 @@ export const saveUserProfileToDB = async (userData: UserProfile): Promise<boolea
     return false;
   }
 };
-
-    
