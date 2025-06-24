@@ -21,6 +21,7 @@ import type { UserProfile } from "@/contexts/AuthContext";
 
 const editProfileFormSchema = z.object({
   name: z.string().min(2, { message: "El nombre debe tener al menos 2 caracteres." }),
+  phone: z.string().optional(),
   specialty: z.string().optional(),
   bio: z.string().optional(),
 });
@@ -30,7 +31,7 @@ export type EditProfileFormValues = z.infer<typeof editProfileFormSchema>;
 interface EditProfileFormProps {
   onSubmit: (data: EditProfileFormValues) => void;
   onCancel: () => void;
-  initialData: Partial<Pick<UserProfile, 'name' | 'specialty' | 'bio'>>;
+  initialData: Partial<Pick<UserProfile, 'name' | 'phone' | 'specialty' | 'bio'>>;
   isSaving?: boolean;
   userRole?: UserProfile['role'];
 }
@@ -46,6 +47,7 @@ export default function EditProfileForm({
     resolver: zodResolver(editProfileFormSchema),
     defaultValues: {
       name: initialData.name || "",
+      phone: initialData.phone || "",
       specialty: initialData.specialty || "",
       bio: initialData.bio || "",
     },
@@ -66,6 +68,20 @@ export default function EditProfileForm({
               <FormLabel>Nombre Completo</FormLabel>
               <FormControl>
                 <Input placeholder="Tu Nombre Completo" {...field} disabled={isSaving} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="phone"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Teléfono</FormLabel>
+              <FormControl>
+                <Input placeholder="Tu número de teléfono" {...field} disabled={isSaving} />
               </FormControl>
               <FormMessage />
             </FormItem>
