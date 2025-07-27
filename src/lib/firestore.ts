@@ -172,45 +172,65 @@ export const deleteClassFromDB = async (classId: string): Promise<boolean> => {
 // --- Funciones para Reservas (Firestore) ---
 
 export const addBookingToDB = async (userId: string, classItem: ClassOffering): Promise<Booking | null> => {
-  const batch = writeBatch(db);
   try {
-    const newBookingData = {
+    const bookingDocRef = doc(collection(db, 'bookings'));
+    const classDocRef = doc(db, 'classes', classItem.id);
+    
+    await runTransaction(db, async (transaction) => {
+      const existingBookingQuery = query(
+        collection(db, 'bookings'),
+        where('userId', '==', userId),
+        where('classId', '==', classItem.id),
+        where('status', '==', 'confirmed'),
+        limit(1)
+      );
+      
+      const existingBookingSnapshot = await getDocs(existingBookingQuery);
+      if (!existingBookingSnapshot.empty) {
+        throw new Error("El usuario ya tiene una reserva confirmada para esta clase.");
+      }
+
+      const classSnap = await transaction.get(classDocRef);
+      if (!classSnap.exists()) {
+        throw new Error("La clase que intentas reservar ya no existe.");
+      }
+
+      const classData = classSnap.data();
+      const newBookedCount = (classData.booked || 0) + 1;
+
+      if (newBookedCount > classData.capacity) {
+        throw new Error("La clase ya está llena.");
+      }
+      
+      transaction.update(classDocRef, { booked: newBookedCount });
+
+      const newBookingData = {
+        userId: userId,
+        classId: classItem.id,
+        className: classItem.name,
+        bookingDate: serverTimestamp(),
+        status: 'confirmed' as const
+      };
+      transaction.set(bookingDocRef, newBookingData);
+    });
+
+    const optimisticBooking: Booking = {
+      id: bookingDocRef.id,
       userId: userId,
       classId: classItem.id,
       className: classItem.name,
-      bookingDate: serverTimestamp(),
-      status: 'confirmed' as const
+      bookingDate: new Date().toISOString(),
+      status: 'confirmed',
     };
+    return optimisticBooking;
 
-    const existingBookingQuery = query(
-      collection(db, 'bookings'),
-      where('userId', '==', userId),
-      where('classId', '==', classItem.id),
-      where('status', '==', 'confirmed'),
-      limit(1)
-    );
-    const existingBookingSnapshot = await getDocs(existingBookingQuery);
-    if (!existingBookingSnapshot.empty) {
-      console.warn("El usuario ya tiene una reserva confirmada para esta clase.");
-      return null;
-    }
-
-    const bookingDocRef = doc(collection(db, 'bookings'));
-    batch.set(bookingDocRef, newBookingData);
-
-    const classDocRef = doc(db, 'classes', classItem.id);
-    batch.update(classDocRef, { booked: increment(1) });
-
-    await batch.commit();
-    
-    const bookingDateForResponse = new Date().toISOString();
-    return { id: bookingDocRef.id, ...newBookingData, bookingDate: bookingDateForResponse } as Booking;
-
-  } catch (error) {
-    console.error("Error añadiendo reserva a Firestore: ", error);
+  } catch (error: any) {
+    console.error("Error añadiendo reserva a Firestore: ", error.message);
+    // No relanzar para no crashear la app, el toast se encargará de notificar
     return null;
   }
 };
+
 
 export const getBookingsForUserFromDB = async (userId: string): Promise<Booking[]> => {
   try {
@@ -235,33 +255,33 @@ export const getBookingsForUserFromDB = async (userId: string): Promise<Booking[
 };
 
 export const cancelBookingInDB = async (bookingId: string, classId: string): Promise<boolean> => {
-  const batch = writeBatch(db);
   try {
-    const bookingDocRef = doc(db, 'bookings', bookingId);
-    const bookingSnap = await getDoc(bookingDocRef);
+    await runTransaction(db, async (transaction) => {
+      const bookingDocRef = doc(db, 'bookings', bookingId);
+      const classDocRef = doc(db, 'classes', classId);
 
-    if (bookingSnap.exists() && bookingSnap.data().status === 'confirmed') {
-        batch.update(bookingDocRef, { status: 'cancelled' });
+      const bookingSnap = await transaction.get(bookingDocRef);
+      if (!bookingSnap.exists() || bookingSnap.data().status !== 'confirmed') {
+        throw new Error("La reserva no existe o ya está cancelada.");
+      }
+      
+      transaction.update(bookingDocRef, { status: 'cancelled' });
 
-        const classDocRef = doc(db, 'classes', classId);
-        const classSnap = await getDoc(classDocRef);
-        if (classSnap.exists()) {
-          const currentBooked = classSnap.data().booked || 0;
-          if (currentBooked > 0) {
-            batch.update(classDocRef, { booked: increment(-1) });
-          }
+      const classSnap = await transaction.get(classDocRef);
+      if (classSnap.exists()) {
+        const currentBooked = classSnap.data().booked || 0;
+        if (currentBooked > 0) {
+            transaction.update(classDocRef, { booked: currentBooked - 1 });
         }
-        await batch.commit();
-        return true;
-    } else {
-        console.warn("La reserva no existe o ya está cancelada.");
-        return false;
-    }
-  } catch (error) {
-    console.error("Error cancelando reserva en Firestore: ", error);
+      }
+    });
+    return true;
+  } catch (error: any) {
+    console.error("Error cancelando reserva en Firestore: ", error.message);
     return false;
   }
 };
+
 
 // --- Funciones para Productos (Firestore) ---
 
@@ -422,11 +442,14 @@ export const addMembershipPaymentToDB = async (
 ): Promise<MembershipPayment | null> => {
   const batch = writeBatch(db);
   try {
+    const paymentTimestamp = serverTimestamp();
+    const paymentDateString = format(new Date(), 'yyyy-MM-dd');
+
     const newPaymentRecord: Omit<MembershipPayment, 'id'> = {
       userId,
       userName,
       amountPaid: paymentData.amountPaid,
-      paymentDate: serverTimestamp() as Timestamp,
+      paymentDate: paymentTimestamp as Timestamp,
       newPaymentDueDate: paymentData.newPaymentDueDate,
       paymentMethod: paymentData.paymentMethod,
       notes: paymentData.notes,
@@ -441,6 +464,7 @@ export const addMembershipPaymentToDB = async (
     batch.update(userDocRef, {
       paymentStatus: 'paid',
       paymentDueDate: paymentData.newPaymentDueDate,
+      lastPaymentDate: paymentDateString,
     });
 
     await batch.commit();
@@ -509,8 +533,12 @@ export const recordSaleAndUpdateStock = async (
         enrichedItems.push(enrichedItem);
         totalAmount += enrichedItem.subtotal;
         totalCost += enrichedItem.costSubtotal || 0;
-
-        transaction.update(productRefsAndData[i].ref, { stock: currentStock - item.quantitySold, updatedAt: serverTimestamp() });
+        
+        const newStock = currentStock - item.quantitySold;
+        transaction.update(productRefsAndData[i].ref, { 
+          stock: newStock,
+          updatedAt: serverTimestamp() 
+        });
       }
 
       const newSaleData: Omit<Sale, 'id'> = {
@@ -681,13 +709,14 @@ export const saveUserProfileToDB = async (userData: UserProfile): Promise<boolea
     }
     
     if (!dataToSave.paymentStatus) {
-      dataToSave.paymentStatus = 'pending';
+      dataToSave.paymentStatus = 'unpaid';
     }
     if (!dataToSave.paymentDueDate) {
       const dueDate = new Date();
       dueDate.setDate(dueDate.getDate() + 30); 
       dataToSave.paymentDueDate = dueDate.toISOString().split('T')[0];
     }
+    if (dataToSave.lastPaymentDate === undefined) delete dataToSave.lastPaymentDate;
 
     if (dataToSave.specialty === undefined) delete dataToSave.specialty;
     if (dataToSave.bio === undefined) delete dataToSave.bio;
@@ -700,3 +729,5 @@ export const saveUserProfileToDB = async (userData: UserProfile): Promise<boolea
     return false;
   }
 };
+
+    

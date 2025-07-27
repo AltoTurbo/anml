@@ -43,7 +43,7 @@ import AddProductForm, { type AddProductFormValues } from '@/components/forms/Ad
 import AddCashTransactionForm, { type AddCashTransactionFormValues } from '@/components/forms/AddCashTransactionForm';
 import AddMembershipPaymentForm, { type AddMembershipPaymentFormValues } from '@/components/forms/AddMembershipPaymentForm';
 import RecordSaleForm from '@/components/forms/RecordSaleForm';
-import { PlusCircle, Edit3, Trash2, UserCog, ListOrdered, ArrowDownUp, Loader2, CreditCard, CheckCircle, XCircle, AlertCircle, ShoppingBag, Landmark, ShoppingCart, Eye, EyeOff, UserCheck, LogIn as LogInIcon, BarChart2, Medal, History } from 'lucide-react';
+import { PlusCircle, Edit3, Trash2, UserCog, ListOrdered, ArrowDownUp, Loader2, CreditCard, CheckCircle, XCircle, AlertCircle, ShoppingBag, Landmark, ShoppingCart, Eye, EyeOff, UserCheck, LogIn as LogInIcon, BarChart2, Medal, History, Users, UserX, CalendarClock, Send, Mail, MessageSquare } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { UserProfile } from '@/contexts/AuthContext';
 import { Badge } from '@/components/ui/badge';
@@ -53,6 +53,7 @@ import { es } from 'date-fns/locale';
 import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import ReportsTab from '@/components/admin/ReportsTab';
+import { Textarea } from '@/components/ui/textarea';
 
 const TABS_CONFIG = [
   { value: "manage-classes", label: "Gestionar Clases", icon: ListOrdered, roles: ['admin', 'trainer'] },
@@ -114,12 +115,15 @@ export default function TrainerDashboardPage() {
   const [userAttendanceHistory, setUserAttendanceHistory] = useState<Attendance[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
+  const [userStats, setUserStats] = useState({ totalUsers: 0, pendingPayments: 0 });
+
+  const [bulkMessage, setBulkMessage] = useState("");
+
 
   const [dashboardPageLoading, setDashboardPageLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<string | undefined>(undefined);
 
   const cleanDescription = (description: string) => {
-    // Removes the (ID Venta: ...) part from the string
     return description.replace(/\s\(ID Venta: .*\)$/, '');
   };
 
@@ -130,6 +134,82 @@ export default function TrainerDashboardPage() {
       setUserAttendanceHistory([]);
     }
   }, [isAttendanceHistoryDialogOpen]);
+  
+  const handleSendBulkEmail = () => {
+    if (!bulkMessage.trim()) {
+      toast({ title: "Mensaje Vacío", description: "Por favor, escribe un mensaje para enviar.", variant: "destructive" });
+      return;
+    }
+    const clientEmails = allUsersForAdminState
+      .filter(u => u.role === 'client' && u.email)
+      .map(u => u.email);
+
+    if (clientEmails.length === 0) {
+      toast({ title: "Sin Clientes", description: "No hay clientes a quienes enviar el mensaje." });
+      return;
+    }
+
+    const bccString = clientEmails.join(',');
+    const mailtoLink = `mailto:?bcc=${encodeURIComponent(bccString)}&subject=${encodeURIComponent("Novedades de Animal GYM")}&body=${encodeURIComponent(bulkMessage)}`;
+    
+    window.location.href = mailtoLink;
+  };
+  
+  const handleSendBulkWhatsApp = () => {
+    if (!bulkMessage.trim()) {
+      toast({ title: "Mensaje Vacío", description: "Por favor, escribe un mensaje para enviar.", variant: "destructive" });
+      return;
+    }
+    const clientsWithPhone = allUsersForAdminState
+      .filter(u => u.role === 'client' && u.phone);
+
+    if (clientsWithPhone.length === 0) {
+      toast({ title: "Sin Clientes con Teléfono", description: "No hay clientes con números de teléfono registrados." });
+      return;
+    }
+
+    const message = encodeURIComponent(bulkMessage);
+    const htmlContent = `
+      <html>
+        <head>
+          <title>Enviar WhatsApp a Clientes</title>
+          <style>
+            body { font-family: sans-serif; padding: 20px; }
+            h1 { color: #3F51B5; }
+            ul { list-style: none; padding: 0; }
+            li { margin-bottom: 10px; }
+            a { 
+              display: inline-block;
+              padding: 10px 15px;
+              background-color: #25D366;
+              color: white;
+              text-decoration: none;
+              border-radius: 5px;
+            }
+          </style>
+        </head>
+        <body>
+          <h1>Enviar Novedades por WhatsApp</h1>
+          <p>Haz clic en cada enlace para enviar el mensaje a tus clientes:</p>
+          <ul>
+            ${clientsWithPhone.map(client => `
+              <li>
+                <strong>${client.name}:</strong> 
+                <a href="https://wa.me/${client.phone?.replace(/\D/g, '')}?text=${message}" target="_blank" rel="noopener noreferrer">
+                  Enviar a ${client.name}
+                </a>
+              </li>
+            `).join('')}
+          </ul>
+        </body>
+      </html>
+    `;
+    
+    const newWindow = window.open();
+    newWindow?.document.write(htmlContent);
+    newWindow?.document.close();
+  };
+
 
   const attendanceRanking = useMemo(() => {
     return Object.entries(monthlyAttendances)
@@ -216,9 +296,21 @@ export default function TrainerDashboardPage() {
           fetchedUsers.push({ id: doc.id, ...data });
         }
       });
+      
+      const otherUsers = fetchedUsers.filter(u => u.id !== currentUser.uid);
+      const today = new Date();
+      today.setHours(0,0,0,0);
 
-      const filteredUsersForDisplay = fetchedUsers
-        .filter(u => u.id !== currentUser.uid)
+      const stats = {
+          totalUsers: otherUsers.filter(u => u.role !== 'admin').length,
+          pendingPayments: otherUsers.filter(u => 
+            u.role === 'client' && u.paymentDueDate && new Date(u.paymentDueDate + 'T00:00:00') < today
+          ).length
+      };
+      setUserStats(stats);
+
+
+      const filteredUsersForDisplay = otherUsers
         .sort((a, b) => a.name.localeCompare(b.name));
 
       setAllUsersForAdminState(filteredUsersForDisplay);
@@ -572,11 +664,21 @@ export default function TrainerDashboardPage() {
     setIsUpdatingRole(prev => ({ ...prev, [userIdToChange]: false }));
   };
 
-  const getPaymentStatusBadge = (status?: UserProfile['paymentStatus']) => {
-    switch (status) {
+  const getPaymentStatusBadge = (user: UserProfile) => {
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const dueDate = user.paymentDueDate ? new Date(user.paymentDueDate + 'T00:00:00') : null;
+    
+    if (dueDate && dueDate < today) {
+        return <Badge variant="secondary" className="bg-yellow-500 text-black"><AlertCircle className="mr-1 h-3 w-3" /> Pendiente</Badge>;
+    }
+    
+    switch (user.paymentStatus) {
       case 'paid': return <Badge variant="default" className="bg-green-500 text-white"><CheckCircle className="mr-1 h-3 w-3" /> Pagado</Badge>;
       case 'unpaid': return <Badge variant="destructive"><XCircle className="mr-1 h-3 w-3" /> No Pagado</Badge>;
-      case 'pending': default: return <Badge variant="secondary" className="bg-yellow-500 text-black"><AlertCircle className="mr-1 h-3 w-3" /> Pendiente</Badge>;
+      case 'pending':
+      default:
+        return <Badge variant="secondary" className="bg-yellow-500 text-black"><AlertCircle className="mr-1 h-3 w-3" /> Pendiente</Badge>;
     }
   };
 
@@ -667,7 +769,7 @@ export default function TrainerDashboardPage() {
         const cashTransactionPayload: Omit<CashTransaction, 'id' | 'date' | 'recordedByUserId' | 'recordedByUserName'> = {
           type: 'income',
           amount: recordedSale.totalAmount,
-          description: `Venta: ${truncatedSaleDetails}`,
+          description: `Venta: ${truncatedSaleDetails} (ID Venta: ${recordedSale.id})`,
           relatedSaleId: recordedSale.id,
           relatedSaleTotalCost: recordedSale.totalCost,
         };
@@ -896,63 +998,125 @@ export default function TrainerDashboardPage() {
               )}
 
               {availableTabs.find(t => t.value === "manage-users") && userProfile?.role === 'admin' && (
-                <TabsContent value="manage-users" className="mt-0">
+                <TabsContent value="manage-users" className="mt-0 space-y-6">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Card>
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Usuarios Totales</CardTitle>
+                        <Users className="h-4 w-4 text-muted-foreground" />
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold">{userStats.totalUsers}</div>
+                        <p className="text-xs text-muted-foreground">Clientes y entrenadores activos.</p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Pagos Pendientes</CardTitle>
+                        <CalendarClock className="h-4 w-4 text-muted-foreground" />
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold">{userStats.pendingPayments}</div>
+                        <p className="text-xs text-muted-foreground">Clientes con cuota vencida.</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+                  
                   <Card className="shadow-lg">
-                    <CardHeader><CardTitle>Gestionar Usuarios y Pagos</CardTitle><CardDescription>Administra roles y estado de pago de los usuarios.</CardDescription></CardHeader>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Send className="h-5 w-5 text-primary"/>
+                        Comunicación Masiva
+                      </CardTitle>
+                      <CardDescription>Envía un mensaje a todos los clientes por correo electrónico o WhatsApp.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                       <Textarea
+                          placeholder="Escribe tu mensaje aquí..."
+                          className="resize-y"
+                          rows={4}
+                          value={bulkMessage}
+                          onChange={(e) => setBulkMessage(e.target.value)}
+                        />
+                        <div className="flex flex-wrap gap-2">
+                           <Button onClick={handleSendBulkEmail} disabled={!bulkMessage}>
+                            <Mail className="mr-2 h-4 w-4" /> Enviar por Correo
+                          </Button>
+                          <Button onClick={handleSendBulkWhatsApp} disabled={!bulkMessage} variant="outline" className="text-green-600 border-green-600 hover:bg-green-50 hover:text-green-700">
+                             <MessageSquare className="mr-2 h-4 w-4" /> Enviar por WhatsApp
+                          </Button>
+                        </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="shadow-lg">
+                    <CardHeader>
+                      <CardTitle>Gestionar Usuarios y Pagos</CardTitle>
+                      <CardDescription>Administra roles y estado de pago de los usuarios.</CardDescription>
+                    </CardHeader>
                     <CardContent>
                       {allUsersForAdminState.length > 0 ? (
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Nombre</TableHead>
-                              <TableHead>Email</TableHead>
-                              <TableHead>Teléfono</TableHead>
-                              <TableHead>Rol</TableHead>
-                              <TableHead>Estado Pago</TableHead>
-                              <TableHead>Vencimiento</TableHead>
-                              <TableHead className="text-center">Asistencias (Mes)</TableHead>
-                              <TableHead className="text-right">Acciones</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {allUsersForAdminState.map(u => (
-                              <TableRow key={u.id}>
-                                <TableCell className="font-medium">{u.name}</TableCell>
-                                <TableCell className="text-xs text-muted-foreground">{u.email}</TableCell>
-                                <TableCell className="text-xs text-muted-foreground">{u.phone || 'N/A'}</TableCell>
-                                <TableCell className="capitalize">{u.role}</TableCell>
-                                <TableCell>{getPaymentStatusBadge(u.paymentStatus)}</TableCell>
-                                <TableCell>{u.paymentDueDate ? formatDateFns(new Date(u.paymentDueDate + 'T00:00:00'), 'dd/MM/yyyy', { locale: es }) : 'N/A'}</TableCell>
-                                <TableCell className="text-center font-semibold text-lg">{monthlyAttendances[u.id]?.count || 0}</TableCell>
-                                <TableCell className="text-right space-x-1">
-                                  <Button variant="outline" size="sm" onClick={() => handleOpenAttendanceHistory(u)} className="text-xs">
-                                      <History className="mr-1 h-3 w-3" /> Historial
-                                  </Button>
-                                  {u.role === 'client' && (
-                                    <Button variant="outline" size="sm" onClick={() => handleOpenAddPaymentDialog(u)} className="text-xs" disabled={isSavingPayment}>
-                                      <CreditCard className="mr-1 h-3 w-3" /> Registrar Pago
-                                    </Button>
-                                  )}
-                                  {u.id !== currentUser?.uid && (
-                                    <>
-                                      {u.role === 'client' && (
-                                        <Button size="sm" onClick={() => handleChangeUserRole(u.id, 'trainer')} className="bg-green-600 hover:bg-green-700 text-white text-xs" disabled={isUpdatingRole[u.id]}>
-                                          {isUpdatingRole[u.id] ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowDownUp className="h-3 w-3 transform rotate-180" />} Promover
-                                        </Button>
-                                      )}
-                                      {u.role === 'trainer' && (
-                                        <Button size="sm" variant="destructive" onClick={() => handleChangeUserRole(u.id, 'client')} className="text-xs" disabled={isUpdatingRole[u.id]}>
-                                          {isUpdatingRole[u.id] ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowDownUp className="h-3 w-3" />} Degradar
-                                        </Button>
-                                      )}
-                                    </>
-                                  )}
-                                  {u.id === currentUser?.uid && (<Badge variant="secondary">Admin (Tú)</Badge>)}
-                                </TableCell>
+                        <div className="overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Nombre</TableHead>
+                                <TableHead>Email / Teléfono</TableHead>
+                                <TableHead>Rol</TableHead>
+                                <TableHead>Estado Pago</TableHead>
+                                <TableHead>Último Pago</TableHead>
+                                <TableHead>Próx. Vencimiento</TableHead>
+                                <TableHead className="text-center">Asistencias (Mes)</TableHead>
+                                <TableHead className="text-right">Acciones</TableHead>
                               </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
+                            </TableHeader>
+                            <TableBody>
+                              {allUsersForAdminState.map(u => (
+                                <TableRow key={u.id}>
+                                  <TableCell className="font-medium whitespace-nowrap">{u.name}</TableCell>
+                                  <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                                    <div>{u.email}</div>
+                                    <div>{u.phone || "Sin teléfono"}</div>
+                                  </TableCell>
+                                  <TableCell className="capitalize">{u.role}</TableCell>
+                                  <TableCell>{getPaymentStatusBadge(u)}</TableCell>
+                                  <TableCell className="whitespace-nowrap">
+                                    {u.lastPaymentDate ? formatDateFns(new Date(u.lastPaymentDate + 'T00:00:00'), 'dd/MM/yyyy', { locale: es }) : 'N/A'}
+                                  </TableCell>
+                                  <TableCell className="whitespace-nowrap">
+                                    {u.paymentDueDate ? formatDateFns(new Date(u.paymentDueDate + 'T00:00:00'), 'dd/MM/yyyy', { locale: es }) : 'N/A'}
+                                  </TableCell>
+                                  <TableCell className="text-center font-semibold text-lg">{monthlyAttendances[u.id]?.count || 0}</TableCell>
+                                  <TableCell className="text-right space-x-1 whitespace-nowrap">
+                                    <Button variant="outline" size="sm" onClick={() => handleOpenAttendanceHistory(u)} className="text-xs">
+                                        <History className="mr-1 h-3 w-3" /> Historial
+                                    </Button>
+                                    {u.role === 'client' && (
+                                      <Button variant="outline" size="sm" onClick={() => handleOpenAddPaymentDialog(u)} className="text-xs" disabled={isSavingPayment}>
+                                        <CreditCard className="mr-1 h-3 w-3" /> Registrar Pago
+                                      </Button>
+                                    )}
+                                    {u.id !== currentUser?.uid && (
+                                      <>
+                                        {u.role === 'client' && (
+                                          <Button size="sm" onClick={() => handleChangeUserRole(u.id, 'trainer')} className="bg-green-600 hover:bg-green-700 text-white text-xs" disabled={isUpdatingRole[u.id]}>
+                                            {isUpdatingRole[u.id] ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowDownUp className="h-3 w-3 transform rotate-180" />} Promover
+                                          </Button>
+                                        )}
+                                        {u.role === 'trainer' && (
+                                          <Button size="sm" variant="destructive" onClick={() => handleChangeUserRole(u.id, 'client')} className="text-xs" disabled={isUpdatingRole[u.id]}>
+                                            {isUpdatingRole[u.id] ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowDownUp className="h-3 w-3" />} Degradar
+                                          </Button>
+                                        )}
+                                      </>
+                                    )}
+                                    {u.id === currentUser?.uid && (<Badge variant="secondary">Admin (Tú)</Badge>)}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
                       ) : (
                         <p className="text-muted-foreground">No hay otros usuarios para mostrar.</p>
                       )}
@@ -1205,3 +1369,5 @@ export default function TrainerDashboardPage() {
     </div>
   );
 }
+
+    

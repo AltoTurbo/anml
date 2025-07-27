@@ -98,13 +98,15 @@ const ReportsTab: React.FC = () => {
         'Tipo': t.type === 'income' ? 'Ingreso' : 'Egreso',
         'Descripción': cleanDescription(t.description),
         'Monto': t.amount.toFixed(2),
-        'Costo de Venta': t.relatedSaleTotalCost ? t.relatedSaleTotalCost.toFixed(2) : '0.00',
+        'Costo de Mercaderia': t.relatedSaleTotalCost ? t.relatedSaleTotalCost.toFixed(2) : '0.00',
         'Registrado Por': t.recordedByUserName || t.recordedByUserId,
       };
     });
 
     const csv = Papa.unparse(dataToExport);
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    // Add BOM for Excel to recognize UTF-8 and sep=, for correct delimiter parsing
+    const csvWithBomAndSep = "\uFEFF" + "sep=,\n" + csv;
+    const blob = new Blob([csvWithBomAndSep], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
     link.setAttribute('href', url);
@@ -218,7 +220,7 @@ const ReportsTab: React.FC = () => {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Costo de Ventas</CardTitle>
+            <CardTitle className="text-sm font-medium">Costo de Mercaderia</CardTitle>
             <ShoppingBasket className="h-4 w-4 text-orange-500" />
           </CardHeader>
           <CardContent>
@@ -318,3 +320,5 @@ const ReportsTab: React.FC = () => {
 };
 
 export default ReportsTab;
+
+    
