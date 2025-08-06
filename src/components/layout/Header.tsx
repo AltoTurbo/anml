@@ -1,8 +1,7 @@
-
 "use client";
 
 import Link from 'next/link';
-import { Dumbbell, UserCircle, LogIn, LogOut, LayoutDashboard, CalendarDays, ListChecks, Users, Bot, HomeIcon, Menu, UserPlus } from 'lucide-react';
+import { Dumbbell, UserCircle, LogIn, LogOut, LayoutDashboard, CalendarDays, ListChecks, Users, HomeIcon, Menu, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter, usePathname } from 'next/navigation';
@@ -34,10 +33,9 @@ export default function Header() {
 
   const navLinks = [
     { href: '/', label: 'Inicio', icon: HomeIcon, public: true, showAlways: true },
-    { href: '/schedule', label: 'Horario', icon: CalendarDays, public: true, showAlways: true }, // Horario público
-    { href: '/trainers', label: 'Entrenadores', icon: Users, public: true, showAlways: true }, // Entrenadores público
+    { href: '/schedule', label: 'Horario', icon: CalendarDays, public: true, showAlways: true },
+    { href: '/trainers', label: 'Entrenadores', icon: Users, public: true, showAlways: true },
     { href: '/bookings', label: 'Mis Reservas', icon: ListChecks, public: false, roles: ['client', 'admin'] },
-    { href: '/ai-routine-generator', label: 'Rutina IA', icon: Bot, public: false, roles: ['client', 'trainer', 'admin'] }, // Disponible para todos los logueados
     { href: '/trainer-dashboard', label: 'Panel', icon: LayoutDashboard, public: false, roles: ['trainer', 'admin'] },
   ];
 

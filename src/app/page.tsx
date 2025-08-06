@@ -1,22 +1,20 @@
-
 "use client";
 
 import Link from 'next/link';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { CheckCircle, Dumbbell, Users, Bot, Loader2 } from 'lucide-react'; // Añadido Loader2
+import { CheckCircle, Dumbbell, Users, Loader2 } from 'lucide-react'; // Removido Bot
 import { useAuth } from '@/contexts/AuthContext';
 
 export default function HomePage() {
-  // Ahora tenemos currentUser (de Firebase Auth) y userProfile (de Firestore)
   const { userProfile, isAuthenticated, loading: authLoading } = useAuth();
 
-  let ctaLink = "/register"; // Default para no autenticados
+  let ctaLink = "/register";
   let ctaText = "Regístrate Ahora";
   
   if (authLoading) {
-    // No hacer nada o mostrar un placeholder si se desea
+    // No hacer nada
   } else if (isAuthenticated && userProfile) {
     if (userProfile.role === 'trainer' || userProfile.role === 'admin') {
       ctaLink = "/trainer-dashboard";
@@ -27,9 +25,6 @@ export default function HomePage() {
     }
     ctaText = "Ir a Mi Panel";
   } else if (isAuthenticated && !userProfile && !authLoading) {
-    // Usuario autenticado pero perfil de Firestore aún no cargado o no existe
-    // Esto puede ser un estado transitorio o un problema.
-    // Por ahora, dirigimos al horario como fallback.
     ctaLink = "/schedule";
     ctaText = "Ver Horario";
   }
@@ -47,9 +42,9 @@ export default function HomePage() {
       description: "Aprende de los mejores. Nuestros entrenadores son profesionales certificados dedicados a tu éxito."
     },
     {
-      icon: <Bot className="h-10 w-10 text-primary" />,
-      title: "Generador de Rutinas con IA",
-      description: "Obtén rutinas de entrenamiento personalizadas adaptadas a tus objetivos y preferencias con nuestra IA inteligente."
+      icon: <CheckCircle className="h-10 w-10 text-primary" />,
+      title: "Gestión de Reservas Fácil",
+      description: "Reserva y gestiona tus clases sin complicaciones desde tu panel personal, manteniendo tu rutina organizada."
     }
   ];
 
@@ -66,7 +61,6 @@ export default function HomePage() {
             </div>
           </div>
         </section>
-        {/* ...  otros placeholders ... */}
       </div>
     );
   }
@@ -79,7 +73,7 @@ export default function HomePage() {
         <div className="container mx-auto text-center px-4">
           <h1 className="text-5xl font-bold mb-6">Bienvenido/a a Animal GYM</h1>
           <p className="text-xl mb-8 max-w-2xl mx-auto">
-            Tu guía definitiva para descubrir clases de fitness, conectar con entrenadores expertos y alcanzar tus objetivos de salud con rutinas de entrenamiento personalizadas por IA.
+            Tu guía definitiva para descubrir clases de fitness, conectar con entrenadores expertos y alcanzar tus objetivos de salud.
           </p>
           <div className="space-x-4">
             <Button size="lg" asChild className="bg-accent text-accent-foreground hover:bg-accent/90">
@@ -130,10 +124,10 @@ export default function HomePage() {
           <div className="md:w-1/2">
             <h3 className="text-3xl font-semibold mb-4 text-foreground">Navega Tu Viaje de Fitness</h3>
             <p className="text-lg text-muted-foreground mb-6">
-              Animal GYM te proporciona todas las herramientas que necesitas en un solo lugar. Reserva clases fácilmente, sigue tu progreso, consulta perfiles de entrenadores y obtén sugerencias de entrenamiento inteligentes.
+              Animal GYM te proporciona todas las herramientas que necesitas en un solo lugar. Reserva clases fácilmente, sigue tu progreso y consulta perfiles de entrenadores.
             </p>
             <ul className="space-y-2">
-              {["Sistema de Reserva Fácil", "Rutinas IA Personalizadas", "Progreso Medible", "Comunidad de Apoyo"].map(item => (
+              {["Sistema de Reserva Fácil", "Entrenadores Certificados", "Progreso Medible", "Comunidad de Apoyo"].map(item => (
                 <li key={item} className="flex items-center text-foreground">
                   <CheckCircle className="h-5 w-5 text-accent mr-2" />
                   {item}
