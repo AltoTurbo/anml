@@ -1,21 +1,12 @@
-import type { Metadata } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
+
+import type {Metadata} from 'next';
+import { GeistSans } from 'geist/font/sans';
+import { GeistMono } from 'geist/font/mono';
 import './globals.css';
 import Header from '@/components/layout/Header';
+import Footer from '@/components/layout/Footer'; // Importar el nuevo Footer
 import { AuthProvider } from '@/contexts/AuthContext';
-import { Toaster } from '@/components/ui/toaster';
-import { Suspense } from 'react';
-import AuthRedirector from '@/components/layout/AuthRedirector';
-
-const geistSans = Geist({
-  variable: '--font-geist-sans',
-  subsets: ['latin'],
-});
-
-const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
-  subsets: ['latin'],
-});
+import { Toaster } from "@/components/ui/toaster";
 
 export const metadata: Metadata = {
   title: 'Animal GYM',
@@ -29,15 +20,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es">
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased flex flex-col min-h-screen`}>
+      <body className={`${GeistSans.variable} ${GeistMono.variable} antialiased flex flex-col min-h-screen`}>
         <AuthProvider>
           <Header />
           <main className="flex-grow container mx-auto px-4 py-8">
-            <Suspense fallback={null}>
-              <AuthRedirector />
-            </Suspense>
             {children}
           </main>
+          <Footer />
           <Toaster />
         </AuthProvider>
       </body>

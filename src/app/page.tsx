@@ -4,7 +4,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { CheckCircle, Dumbbell, Users, Loader2 } from 'lucide-react'; // Removido Bot
+import { CheckCircle, Dumbbell, Users } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
 export default function HomePage() {
@@ -69,17 +69,20 @@ export default function HomePage() {
   return (
     <div className="flex flex-col items-center">
       {/* Hero Section */}
-      <section className="w-full bg-gradient-to-r from-primary to-indigo-600 text-primary-foreground py-20 rounded-lg shadow-xl">
+      <section className="w-full bg-gradient-to-r from-blue-400 to-blue-600 text-primary-foreground py-20 rounded-lg shadow-xl">
         <div className="container mx-auto text-center px-4">
-          <h1 className="text-5xl font-bold mb-6">Bienvenido/a a Animal GYM</h1>
+          <h1 className="text-5xl font-bold mb-4">Bienvenido/a a Animal GYM</h1>
+          <p className="text-lg italic text-primary-foreground/90 mb-6">
+            🔥 ¡Desata tu animal interior! | 💪🏻 Disciplinas & Musculación | ⚠️ ¡Unite al #teamanimal!
+          </p>
           <p className="text-xl mb-8 max-w-2xl mx-auto">
             Tu guía definitiva para descubrir clases de fitness, conectar con entrenadores expertos y alcanzar tus objetivos de salud.
           </p>
           <div className="space-x-4">
-            <Button size="lg" asChild className="bg-accent text-accent-foreground hover:bg-accent/90">
+            <Button size="lg" asChild className="bg-background text-foreground hover:bg-background/90">
               <Link href={ctaLink}>{ctaText}</Link>
             </Button>
-            <Button size="lg" variant="outline" className="border-primary-foreground text-primary-foreground hover:bg-primary-foreground/10" asChild>
+            <Button size="lg" asChild className="bg-background text-foreground hover:bg-background/90">
               <Link href="/schedule">Ver Clases</Link>
             </Button>
           </div>
