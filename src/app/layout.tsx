@@ -5,8 +5,10 @@ import { GeistMono } from 'geist/font/mono';
 import './globals.css';
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
-import { AuthProvider } from '@/contexts/AuthContext';
+import AuthContextWrapper from '@/contexts/AuthContextWrapper';
 import { Toaster } from "@/components/ui/toaster";
+import { Suspense } from 'react';
+
 
 export const metadata: Metadata = {
   title: 'Animal GYM',
@@ -20,15 +22,17 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es" className={`${GeistSans.variable} ${GeistMono.variable}`}>
-      <body className={`antialiased flex flex-col min-h-screen`}>
-        <AuthProvider>
-          <Header />
-          <main className="flex-grow container mx-auto px-4 py-8">
-            {children}
-          </main>
-          <Footer />
-          <Toaster />
-        </AuthProvider>
+      <body className={`antialiased flex flex-col min-h-screen font-sans`}>
+        <Suspense fallback={<div>Loading...</div>}>
+          <AuthContextWrapper>
+            <Header />
+            <main className="flex-grow container mx-auto px-4 py-8">
+              {children}
+            </main>
+            <Footer />
+            <Toaster />
+          </AuthContextWrapper>
+        </Suspense>
       </body>
     </html>
   );

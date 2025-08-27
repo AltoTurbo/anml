@@ -3,7 +3,7 @@
 
 import type { ReactNode } from 'react';
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { useRouter, usePathname, useSearchParams } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { auth, db } from '@/lib/firebase';
 import {
   createUserWithEmailAndPassword,
@@ -47,13 +47,12 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 
-export const AuthProvider = ({ children }: { children: ReactNode }) => {
+export const AuthProvider = ({ children, redirectUrl }: { children: ReactNode, redirectUrl: string | null }) => {
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const { toast } = useToast();
 
   useEffect(() => {
@@ -110,7 +109,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           title: "Registro Exitoso",
           description: `¡Bienvenido/a, ${name}! Tu cuenta ha sido creada.`,
         });
-        const redirectPath = searchParams.get('redirect') || '/schedule';
+        const redirectPath = redirectUrl || '/schedule';
         router.push(redirectPath);
       } else {
         toast({ title: "Error de Registro", description: "Tu cuenta fue creada pero hubo un problema al guardar tu perfil.", variant: "destructive" });
@@ -144,7 +143,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           title: "Inicio de Sesión Exitoso",
           description: `¡Bienvenido/a de nuevo, ${profile.name}!`,
         });
-        const redirectPath = searchParams.get('redirect') || (profile.role === 'admin' || profile.role === 'trainer' ? '/trainer-dashboard' : '/schedule');
+        const redirectPath = redirectUrl || (profile.role === 'admin' || profile.role === 'trainer' ? '/trainer-dashboard' : '/schedule');
         router.push(redirectPath);
       } else {
         console.warn(`Perfil no encontrado en Firestore para el usuario ${firebaseUser.uid} tras iniciar sesión.`);
