@@ -79,8 +79,8 @@ export default function TrainerDashboardPage() {
   const [isDeleteClassConfirmOpen, setIsDeleteClassConfirmOpen] = useState(false);
 
   const [products, setProducts] = useState<Product[]>([]);
-  const [isAddProductDialogOpen, setIsAddProductDialogOpen] useState(false);
-  const [isEditProductDialogOpen, setIsEditProductDialogOpen] useState(false);
+  const [isAddProductDialogOpen, setIsAddProductDialogOpen] = useState(false);
+  const [isEditProductDialogOpen, setIsEditProductDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [isDeleteProductConfirmOpen, setIsDeleteProductConfirmOpen] = useState(false);
@@ -898,7 +898,7 @@ export default function TrainerDashboardPage() {
                   <Card className="shadow-lg">
                     <CardHeader><CardTitle>{userProfile.role === 'admin' ? "Todas las Clases" : "Tus Clases"}</CardTitle><CardDescription>{userProfile.role === 'admin' ? "Ve, añade, edita o elimina todas las clases." : "Ve, añade, edita o elimina tus clases."}</CardDescription></CardHeader>
                     <CardContent>
-                      {trainerClasses.length > 0 ? (<div className="space-y-4">{trainerClasses.map(cls => (<div key={cls.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-secondary/20 transition-colors"><div><h3 className="font-semibold text-lg text-primary">{cls.name}</h3><p className="text-sm text-muted-foreground">{cls.day} a las {cls.time} - {cls.booked}/{cls.capacity} plazas</p>{userProfile?.role === 'admin' && <p className="text-xs text-muted-foreground">Entrenador/a: {cls.trainerName}</p>}</div><div className="space-x-2 flex-shrink-0"><Button variant="outline" size="icon" onClick={() => handleOpenEditClassDialog(cls)}><Edit3 className="h-4 w-4" /><span className="sr-only">Editar</span></Button><Button variant="destructive" size="icon" onClick={() => handleDeleteClass(cls)}><Trash2 className="h-4 w-4" /><span className="sr-only">Eliminar</span></Button></div></div>))}</div>)
+                      {trainerClasses.length > 0 ? (<div className="space-y-4">{trainerClasses.map(cls => (<div key={cls.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-secondary/20 transition-colors"><div><h3 className="font-semibold text-lg text-primary">{cls.name}</h3><p className="text-sm text-muted-foreground">{cls.day} a las {cls.time} - {cls.booked}/{cls.capacity} plazas</p>{userProfile?.role === 'admin' && <p className="text-xs text-muted-foreground">Entrenador/a: {cls.trainerName}</p>}</div><div className="space-x-2 flex-shrink-0"><Button variant="outline" size="icon" onClick={()={() => handleOpenEditClassDialog(cls)}}><Edit3 className="h-4 w-4" /><span className="sr-only">Editar</span></Button><Button variant="destructive" size="icon" onClick={() => handleDeleteClass(cls)}><Trash2 className="h-4 w-4" /><span className="sr-only">Eliminar</span></Button></div></div>))}</div>)
                         : (<p className="text-muted-foreground">No hay clases programadas.</p>)}
                     </CardContent></Card>
                 </TabsContent>
@@ -939,10 +939,10 @@ export default function TrainerDashboardPage() {
                       <CardDescription>Utiliza los botones para registrar la venta de productos o el cobro de servicios y clases.</CardDescription>
                     </CardHeader>
                     <CardContent className="flex flex-col sm:flex-row gap-4">
-                      <Button onClick={handleOpenRecordSaleDialog} className="bg-green-600 hover:bg-green-700 text-white">
+                      <Button onClick={() => handleOpenRecordSaleDialog()} className="bg-green-600 hover:bg-green-700 text-white">
                         <ShoppingCart className="mr-2 h-4 w-4" /> Registrar Venta de Producto
                       </Button>
-                      <Button onClick={handleOpenAddCashTransactionDialog} className="bg-accent text-accent-foreground hover:bg-accent/90">
+                      <Button onClick={() => handleOpenAddCashTransactionDialog()} className="bg-accent text-accent-foreground hover:bg-accent/90">
                         <PlusCircle className="mr-2 h-4 w-4" /> Registrar {userProfile?.role === 'trainer' ? 'Otro Ingreso' : 'Transacción'}
                       </Button>
                     </CardContent>
@@ -1040,10 +1040,10 @@ export default function TrainerDashboardPage() {
                           onChange={(e) => setBulkMessage(e.target.value)}
                         />
                         <div className="flex flex-wrap gap-2">
-                           <Button onClick={handleSendBulkEmail} disabled={!bulkMessage}>
+                           <Button onClick={() => handleSendBulkEmail()} disabled={!bulkMessage}>
                             <Mail className="mr-2 h-4 w-4" /> Enviar por Correo
                           </Button>
-                          <Button onClick={handleSendBulkWhatsApp} disabled={!bulkMessage} variant="outline" className="text-green-600 border-green-600 hover:bg-green-50 hover:text-green-700">
+                          <Button onClick={() => handleSendBulkWhatsApp()} disabled={!bulkMessage} variant="outline" className="text-green-600 border-green-600 hover:bg-green-50 hover:text-green-700">
                              <MessageSquare className="mr-2 h-4 w-4" /> Enviar por WhatsApp
                           </Button>
                         </div>
@@ -1148,7 +1148,7 @@ export default function TrainerDashboardPage() {
                               disabled={isRegisteringAttendance}
                             />
                             <Button 
-                              onClick={handleRegisterAttendance} 
+                              onClick={() => handleRegisterAttendance()} 
                               disabled={isRegisteringAttendance || !dniInputForAttendance.trim()}
                               className="bg-accent text-accent-foreground hover:bg-accent/90"
                             >
@@ -1254,11 +1254,11 @@ export default function TrainerDashboardPage() {
 
       {currentUser && userProfile && (<Dialog open={isAddClassDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) handleCloseAddClassDialog(false); else setIsAddClassDialogOpen(true); }}><DialogContent className="sm:max-w-[600px]"><DialogHeader><DialogTitle>Añadir Nueva Clase</DialogTitle><DialogDescription>Completa los detalles para crear una nueva clase.</DialogDescription></DialogHeader><AddClassForm onSubmit={handleSaveNewClass} onCancel={() => handleCloseAddClassDialog(false)} currentUserProfile={userProfile} allTrainers={userProfile.role === 'admin' ? availableTrainers : []} /></DialogContent></Dialog>)}
       {currentUser && userProfile && editingClass && (<Dialog open={isEditClassDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) handleCloseEditClassDialog(false); else setIsEditClassDialogOpen(true); }}><DialogContent className="sm:max-w-[600px]"><DialogHeader><DialogTitle>Editar Clase</DialogTitle><DialogDescription>Modifica los detalles de la clase.</DialogDescription></DialogHeader><AddClassForm onSubmit={handleSaveEditedClass} onCancel={() => handleCloseEditClassDialog(false)} currentUserProfile={userProfile} allTrainers={userProfile.role === 'admin' ? availableTrainers : []} initialData={editingClass} isEditMode={true} /></DialogContent></Dialog>)}
-      <AlertDialog open={isDeleteClassConfirmOpen} onOpenChange={(isOpen) => { setIsDeleteClassConfirmOpen(isOpen); if (!isOpen) setClassToDelete(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>¿Estás seguro?</AlertDialogTitle><AlertDialogDescription>Esta acción eliminará permanentemente la clase: "{classToDelete?.name}" y sus reservas.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel onClick={() => { setIsDeleteClassConfirmOpen(false); setClassToDelete(null); }}>Cancelar</AlertDialogCancel><AlertDialogAction onClick={confirmDeleteClass} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Eliminar</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+      <AlertDialog open={isDeleteClassConfirmOpen} onOpenChange={(isOpen) => { setIsDeleteClassConfirmOpen(isOpen); if (!isOpen) setClassToDelete(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>¿Estás seguro?</AlertDialogTitle><AlertDialogDescription>Esta acción eliminará permanentemente la clase: "{classToDelete?.name}" y sus reservas.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel onClick={() => { setIsDeleteClassConfirmOpen(false); setClassToDelete(null); }}>Cancelar</AlertDialogCancel><AlertDialogAction onClick={() => confirmDeleteClass()} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Eliminar</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
 
       {userProfile?.role === 'admin' && (<Dialog open={isAddProductDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) handleCloseAddProductDialog(false); else setIsAddProductDialogOpen(true); }}><DialogContent className="sm:max-w-[600px]"><DialogHeader><DialogTitle>Añadir Nuevo Producto</DialogTitle><DialogDescription>Completa los detalles para añadir un nuevo producto al inventario.</DialogDescription></DialogHeader><AddProductForm onSubmit={handleSaveNewProduct} onCancel={() => handleCloseAddProductDialog(false)} isSaving={isSavingProduct} /></DialogContent></Dialog>)}
       {userProfile?.role === 'admin' && editingProduct && (<Dialog open={isEditProductDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) handleCloseEditProductDialog(false); else setIsEditProductDialogOpen(true); }}><DialogContent className="sm:max-w-[600px]"><DialogHeader><DialogTitle>Editar Producto</DialogTitle><DialogDescription>Modifica los detalles del producto.</DialogDescription></DialogHeader><AddProductForm onSubmit={handleSaveEditedProduct} onCancel={() => handleCloseEditProductDialog(false)} initialData={editingProduct} isEditMode={true} isSaving={isSavingProduct} /></DialogContent></Dialog>)}
-      {userProfile?.role === 'admin' && (<AlertDialog open={isDeleteProductConfirmOpen} onOpenChange={(isOpen) => { setIsDeleteProductConfirmOpen(isOpen); if (!isOpen) setProductToDelete(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>¿Estás seguro?</AlertDialogTitle><AlertDialogDescription>Esta acción eliminará permanentemente el producto: "{productToDelete?.name}".</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel onClick={() => { setIsDeleteProductConfirmOpen(false); setProductToDelete(null); }}>Cancelar</AlertDialogCancel><AlertDialogAction onClick={confirmDeleteProduct} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Eliminar</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>)}
+      {userProfile?.role === 'admin' && (<AlertDialog open={isDeleteProductConfirmOpen} onOpenChange={(isOpen) => { setIsDeleteProductConfirmOpen(isOpen); if (!isOpen) setProductToDelete(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>¿Estás seguro?</AlertDialogTitle><AlertDialogDescription>Esta acción eliminará permanentemente el producto: "{productToDelete?.name}".</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel onClick={() => { setIsDeleteProductConfirmOpen(false); setProductToDelete(null); }}>Cancelar</AlertDialogCancel><AlertDialogAction onClick={() => confirmDeleteProduct()} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Eliminar</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>)}
 
       {userProfile && ['admin', 'trainer'].includes(userProfile.role) && (
         <Dialog open={isAddCashTransactionDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) handleCloseAddCashTransactionDialog(false); else setIsAddCashTransactionDialogOpen(true); }}>
@@ -1288,7 +1288,7 @@ export default function TrainerDashboardPage() {
             </DialogHeader>
             <AddMembershipPaymentForm
               onSubmit={handleSaveNewPayment}
-              onCancel={handleCloseAddPaymentDialog}
+              onCancel={() => handleCloseAddPaymentDialog()}
               isSaving={isSavingPayment}
               clientName={selectedUserForPayment.name}
               currentDueDate={selectedUserForPayment.paymentDueDate}
