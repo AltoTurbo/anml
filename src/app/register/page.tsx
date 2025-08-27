@@ -1,11 +1,10 @@
-'use client';
 
-import React, { Suspense, useState } from 'react';
+"use client";
+
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
 import Link from 'next/link';
-import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -16,30 +15,28 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
+// useRouter ya no es necesario aquí para la redirección, se maneja en AuthContext
+// import { useRouter } from "next/navigation"; 
+// useToast ya no es necesario aquí, se maneja en AuthContext
+// import { useToast } from "@/hooks/use-toast";
 import { UserPlus, Loader2 } from "lucide-react";
+import { useState } from "react";
 
 const registerFormSchema = z.object({
   name: z.string().min(2, { message: "El nombre debe tener al menos 2 caracteres." }),
   email: z.string().email({ message: "Dirección de correo electrónico inválida." }),
   phone: z.string().min(6, { message: "El teléfono debe tener al menos 6 dígitos." }),
+  dni: z.string().min(7, { message: "El DNI debe tener al menos 7 dígitos." }),
   password: z.string().min(6, { message: "La contraseña debe tener al menos 6 caracteres." }),
 });
 
 type RegisterFormValues = z.infer<typeof registerFormSchema>;
 
-function RegisterPageContent() {
-  const { registerUser, loading } = useAuth();
+export default function RegisterPage() {
+  const { registerUser, loading } = useAuth(); 
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const searchParams = useSearchParams();
-  const redirectPath = searchParams.get('redirect') || undefined;
 
   const form = useForm<RegisterFormValues>({
     resolver: zodResolver(registerFormSchema),
@@ -47,14 +44,16 @@ function RegisterPageContent() {
       name: "",
       email: "",
       phone: "",
+      dni: "",
       password: "",
     },
   });
 
   async function onSubmit(data: RegisterFormValues) {
     setIsSubmitting(true);
-    await registerUser(data.email, data.password, data.name, data.phone, redirectPath);
+    await registerUser(data.email, data.password, data.name, data.phone, data.dni);
     setIsSubmitting(false);
+    // La redirección y los toasts se manejan dentro de registerUser en AuthContext
   }
 
   return (
@@ -111,6 +110,19 @@ function RegisterPageContent() {
               />
               <FormField
                 control={form.control}
+                name="dni"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>DNI</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Tu número de documento" {...field} disabled={loading || isSubmitting} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
                 name="password"
                 render={({ field }) => (
                   <FormItem>
@@ -130,8 +142,8 @@ function RegisterPageContent() {
           </Form>
           <p className="mt-6 text-center text-sm text-muted-foreground">
             ¿Ya tienes una cuenta?{' '}
-            <Button variant="link" asChild className="text-primary p-0 h-auto">
-              <Link href={`/login${redirectPath ? `?redirect=${redirectPath}` : ''}`}>
+             <Button variant="link" asChild className="text-primary p-0 h-auto">
+              <Link href="/login">
                 Inicia sesión aquí
               </Link>
             </Button>
@@ -139,13 +151,5 @@ function RegisterPageContent() {
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-export default function RegisterPage() {
-  return (
-    <Suspense fallback={<div>Cargando...</div>}>
-      <RegisterPageContent />
-    </Suspense>
   );
 }

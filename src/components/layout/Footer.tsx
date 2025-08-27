@@ -5,12 +5,13 @@ import { Dumbbell, MapPin, Phone, Mail, Instagram, Facebook, Twitter } from 'luc
 
 export default function Footer() {
   const socialLinks = [
-    { name: 'Facebook', icon: Facebook, href: 'https://www.facebook.com/profile.php?id=100046609075249&sk=reviews' },
+    { name: 'Facebook', icon: Facebook, href: 'https://www.facebook.com/profile.php?id=100046609075249' },
     { name: 'Instagram', icon: Instagram, href: 'https://www.instagram.com/animalfitcenter/' },
   ];
   
   const whatsappNumber = "5491154983534"; // Formato internacional sin símbolos
   const whatsappLink = `https://wa.me/${whatsappNumber}`;
+  const googleMapsLink = "https://www.google.com/maps/search/?api=1&query=Eva+Duarte+de+Per%C3%B3n,+Grand+Bourg,+Argentina";
 
   return (
     <footer className="bg-card text-card-foreground border-t mt-auto">
@@ -23,7 +24,7 @@ export default function Footer() {
               <span className="text-xl font-bold">Animal GYM</span>
             </Link>
             <p className="text-muted-foreground text-sm leading-relaxed">
-              Tu guía definitiva para descubrir clases de fitness, conectar con entrenadores expertos y alcanzar tus objetivos de salud.
+             🔥 ¡Desata tu animal interior! | 💪🏻 Disciplinas & Musculación | ⚠️ ¡Unite al #teamanimal!
             </p>
           </div>
 
@@ -33,7 +34,9 @@ export default function Footer() {
             <ul className="space-y-2 text-sm text-muted-foreground">
               <li className="flex items-center justify-center md:justify-start gap-2">
                 <MapPin className="h-4 w-4 text-primary shrink-0" />
-                <span>Eva Duarte de Perón, Grand Bourg, Argentina</span>
+                <a href={googleMapsLink} target="_blank" rel="noopener noreferrer" className="hover:text-primary">
+                  <span>Eva Duarte de Perón, Grand Bourg, Argentina</span>
+                </a>
               </li>
               <li className="flex items-center justify-center md:justify-start gap-2">
                 <Phone className="h-4 w-4 text-primary shrink-0" />
@@ -56,9 +59,15 @@ export default function Footer() {
             {socialLinks.length > 0 ? (
                 <div className="flex justify-center md:justify-start space-x-4">
                 {socialLinks.map((social) => (
-                    <a key={social.name} href={social.href} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary">
-                    <social.icon className="h-6 w-6" />
-                    <span className="sr-only">{social.name}</span>
+                    <a 
+                      key={social.name} 
+                      href={social.href} 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="text-muted-foreground hover:text-primary bg-secondary p-2 rounded-full transition-colors duration-300"
+                    >
+                      <social.icon className="h-6 w-6" />
+                      <span className="sr-only">{social.name}</span>
                     </a>
                 ))}
                 </div>

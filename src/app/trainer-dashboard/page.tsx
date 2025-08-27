@@ -43,7 +43,7 @@ import AddProductForm, { type AddProductFormValues } from '@/components/forms/Ad
 import AddCashTransactionForm, { type AddCashTransactionFormValues } from '@/components/forms/AddCashTransactionForm';
 import AddMembershipPaymentForm, { type AddMembershipPaymentFormValues } from '@/components/forms/AddMembershipPaymentForm';
 import RecordSaleForm from '@/components/forms/RecordSaleForm';
-import { PlusCircle, Edit3, Trash2, UserCog, ListOrdered, ArrowDownUp, Loader2, CreditCard, CheckCircle, XCircle, AlertCircle, ShoppingBag, Landmark, ShoppingCart, Eye, EyeOff, UserCheck, LogIn as LogInIcon, BarChart2, Medal, History, Users, UserX, CalendarClock, Send, Mail, MessageSquare } from 'lucide-react';
+import { PlusCircle, Edit3, Trash2, UserCog, ListOrdered, ArrowDownUp, Loader2, CreditCard, CheckCircle, XCircle, AlertCircle, ShoppingBag, Landmark, ShoppingCart, Eye, EyeOff, UserCheck, LogIn as LogInIcon, BarChart2, Medal, History, Users, UserX, CalendarClock, Send, Mail, MessageSquare, BadgeInfo } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { UserProfile } from '@/contexts/AuthContext';
 import { Badge } from '@/components/ui/badge';
@@ -54,6 +54,7 @@ import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import ReportsTab from '@/components/admin/ReportsTab';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
 
 const TABS_CONFIG = [
   { value: "manage-classes", label: "Gestionar Clases", icon: ListOrdered, roles: ['admin', 'trainer'] },
@@ -78,8 +79,8 @@ export default function TrainerDashboardPage() {
   const [isDeleteClassConfirmOpen, setIsDeleteClassConfirmOpen] = useState(false);
 
   const [products, setProducts] = useState<Product[]>([]);
-  const [isAddProductDialogOpen, setIsAddProductDialogOpen] = useState(false);
-  const [isEditProductDialogOpen, setIsEditProductDialogOpen] = useState(false);
+  const [isAddProductDialogOpen, setIsAddProductDialogOpen] useState(false);
+  const [isEditProductDialogOpen, setIsEditProductDialogOpen] useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [isDeleteProductConfirmOpen, setIsDeleteProductConfirmOpen] = useState(false);
@@ -105,7 +106,7 @@ export default function TrainerDashboardPage() {
 
   const [allClientsForAttendance, setAllClientsForAttendance] = useState<UserProfile[]>([]);
   const [dailyAttendances, setDailyAttendances] = useState<Attendance[]>([]);
-  const [selectedClientIdForAttendance, setSelectedClientIdForAttendance] = useState<string>('');
+  const [dniInputForAttendance, setDniInputForAttendance] = useState<string>('');
   const [isRegisteringAttendance, setIsRegisteringAttendance] = useState(false);
   
   const [monthlyAttendances, setMonthlyAttendances] = useState<Record<string, { userName: string; count: number }>>({});
@@ -785,14 +786,14 @@ export default function TrainerDashboardPage() {
   };
 
   const handleRegisterAttendance = async () => {
-    if (!currentUser || !userProfile || !selectedClientIdForAttendance) {
-      toast({ title: "Error", description: "Por favor, selecciona un cliente.", variant: "destructive" });
+    if (!currentUser || !userProfile || !dniInputForAttendance.trim()) {
+      toast({ title: "Error", description: "Por favor, ingresa un número de DNI.", variant: "destructive" });
       return;
     }
     setIsRegisteringAttendance(true);
-    const client = allClientsForAttendance.find(c => c.id === selectedClientIdForAttendance);
+    const client = allClientsForAttendance.find(c => c.dni === dniInputForAttendance.trim());
     if (!client) {
-      toast({ title: "Error", description: "Cliente no encontrado.", variant: "destructive" });
+      toast({ title: "Cliente no Encontrado", description: "No se encontró ningún cliente con ese DNI.", variant: "destructive" });
       setIsRegisteringAttendance(false);
       return;
     }
@@ -811,7 +812,7 @@ export default function TrainerDashboardPage() {
       // Optimistically add to local state or re-fetch
       await fetchDailyAttendances();
       await fetchMonthlyAttendanceData(); // Re-fetch monthly counts
-      setSelectedClientIdForAttendance(''); 
+      setDniInputForAttendance(''); 
     } else {
       toast({ title: "Error", description: "No se pudo registrar la asistencia.", variant: "destructive" });
     }
@@ -1061,7 +1062,8 @@ export default function TrainerDashboardPage() {
                             <TableHeader>
                               <TableRow>
                                 <TableHead>Nombre</TableHead>
-                                <TableHead>Email / Teléfono</TableHead>
+                                <TableHead>Contacto</TableHead>
+                                <TableHead>DNI</TableHead>
                                 <TableHead>Rol</TableHead>
                                 <TableHead>Estado Pago</TableHead>
                                 <TableHead>Último Pago</TableHead>
@@ -1077,6 +1079,9 @@ export default function TrainerDashboardPage() {
                                   <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                                     <div>{u.email}</div>
                                     <div>{u.phone || "Sin teléfono"}</div>
+                                  </TableCell>
+                                  <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                                    {u.dni || "No especificado"}
                                   </TableCell>
                                   <TableCell className="capitalize">{u.role}</TableCell>
                                   <TableCell>{getPaymentStatusBadge(u)}</TableCell>
@@ -1130,37 +1135,27 @@ export default function TrainerDashboardPage() {
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <Card className="lg:col-span-1 shadow-lg">
                       <CardHeader>
-                        <CardTitle>Registrar Entrada</CardTitle>
-                        <CardDescription>Selecciona un cliente para marcar su asistencia.</CardDescription>
+                        <CardTitle>Registrar Entrada por DNI</CardTitle>
+                        <CardDescription>Ingresa el DNI de un cliente para marcar su asistencia.</CardDescription>
                       </CardHeader>
                       <CardContent className="space-y-4">
-                        <div>
-                          <Select
-                            value={selectedClientIdForAttendance}
-                            onValueChange={setSelectedClientIdForAttendance}
-                            disabled={isRegisteringAttendance || allClientsForAttendance.length === 0}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder={allClientsForAttendance.length > 0 ? "Selecciona un cliente" : "No hay clientes"} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {allClientsForAttendance.map(client => (
-                                <SelectItem key={client.id} value={client.id}>
-                                  {client.name} ({client.email})
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                           {allClientsForAttendance.length === 0 && <p className="text-xs text-muted-foreground mt-1">Asegúrate de que haya usuarios con rol 'cliente'.</p>}
+                        <div className="flex gap-2">
+                           <Input
+                              type="text"
+                              placeholder="Número de DNI del cliente"
+                              value={dniInputForAttendance}
+                              onChange={(e) => setDniInputForAttendance(e.target.value)}
+                              disabled={isRegisteringAttendance}
+                            />
+                            <Button 
+                              onClick={handleRegisterAttendance} 
+                              disabled={isRegisteringAttendance || !dniInputForAttendance.trim()}
+                              className="bg-accent text-accent-foreground hover:bg-accent/90"
+                            >
+                              {isRegisteringAttendance ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogInIcon className="mr-2 h-4 w-4" />}
+                              {isRegisteringAttendance ? "" : "Presente"}
+                            </Button>
                         </div>
-                        <Button 
-                          onClick={handleRegisterAttendance} 
-                          disabled={isRegisteringAttendance || !selectedClientIdForAttendance}
-                          className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
-                        >
-                          {isRegisteringAttendance ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogInIcon className="mr-2 h-4 w-4" />}
-                          {isRegisteringAttendance ? "Registrando..." : "Registrar Entrada"}
-                        </Button>
                       </CardContent>
                     </Card>
 

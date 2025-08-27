@@ -721,6 +721,7 @@ export const saveUserProfileToDB = async (userData: UserProfile): Promise<boolea
     if (dataToSave.specialty === undefined) delete dataToSave.specialty;
     if (dataToSave.bio === undefined) delete dataToSave.bio;
     if (dataToSave.imageUrl === undefined) delete dataToSave.imageUrl;
+    if (dataToSave.dni === undefined) delete dataToSave.dni;
     
     await setDoc(userDocRef, dataToSave , { merge: true });
     return true;

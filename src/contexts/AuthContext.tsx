@@ -1,8 +1,9 @@
+
 "use client";
 
 import type { ReactNode } from 'react';
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { auth, db } from '@/lib/firebase';
 import {
   createUserWithEmailAndPassword,
@@ -15,18 +16,21 @@ import { doc, serverTimestamp, Timestamp, updateDoc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { saveUserProfileToDB, getUserProfileFromDB } from '@/lib/firestore';
 
+
 export interface UserProfile {
   id: string;
   name: string;
   email: string;
   phone?: string;
+  dni?: string; // Nuevo campo para el DNI
   role: 'client' | 'trainer' | 'admin';
   createdAt?: Timestamp;
   specialty?: string;
   bio?: string;
   imageUrl?: string;
   paymentStatus?: 'paid' | 'unpaid' | 'pending';
-  paymentDueDate?: string;
+  paymentDueDate?: string; // Formato YYYY-MM-DD
+  lastPaymentDate?: string; // Formato YYYY-MM-DD
 }
 
 interface AuthContextType {
@@ -34,31 +38,22 @@ interface AuthContextType {
   userProfile: UserProfile | null;
   loading: boolean;
   isAuthenticated: boolean;
-  registerUser: (
-    email: string,
-    password: string,
-    name: string,
-    phone: string,
-    redirectPath?: string
-  ) => Promise<void>;
-  loginUser: (
-    email: string,
-    password: string,
-    redirectPath?: string
-  ) => Promise<void>;
+  registerUser: (email: string, password: string, name: string, phone: string, dni: string) => Promise<void>;
+  loginUser: (email: string, password: string) => Promise<void>;
   logoutUser: () => Promise<void>;
-  updateUserProfileDetails: (
-    details: Partial<Pick<UserProfile, 'name' | 'specialty' | 'bio' | 'phone'>>
-  ) => Promise<void>;
+  updateUserProfileDetails: (details: Partial<Pick<UserProfile, 'name' | 'specialty' | 'bio' | 'phone' | 'dni'>>) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { toast } = useToast();
 
   useEffect(() => {
@@ -67,7 +62,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (firebaseUser) {
         setCurrentUser(firebaseUser);
         const profile = await getUserProfileFromDB(firebaseUser.uid);
-        setUserProfile(profile || null);
+        if (profile) {
+          setUserProfile(profile);
+        } else {
+          setUserProfile(null);
+          console.warn(`Perfil no encontrado en Firestore para el UID: ${firebaseUser.uid} durante onAuthStateChanged.`);
+        }
       } else {
         setCurrentUser(null);
         setUserProfile(null);
@@ -77,18 +77,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return () => unsubscribe();
   }, []);
 
-  const registerUser = async (
-    email: string,
-    password: string,
-    name: string,
-    phone: string,
-    redirectPath?: string
-  ) => {
+  const registerUser = async (email: string, password: string, name: string, phone: string, dni: string) => {
     setLoading(true);
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const firebaseUser = userCredential.user;
-
+      
       const dueDate = new Date();
       dueDate.setDate(dueDate.getDate() + 30);
 
@@ -97,47 +91,47 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         email: firebaseUser.email || email,
         name,
         phone,
-        role: 'client',
+        dni,
+        role: 'client', 
         createdAt: serverTimestamp() as Timestamp,
         bio: "Dedicado/a a ayudarte a alcanzar tus metas de fitness.",
-        specialty: "Entrenador/a Certificado/a",
-        paymentStatus: 'pending',
-        paymentDueDate: dueDate.toISOString().split('T')[0],
+        specialty: "Entrenador/a Certificado/a", // Default for potential future role change
+        paymentStatus: 'unpaid', // Start as unpaid
+        paymentDueDate: dueDate.toISOString().split('T')[0], 
+        lastPaymentDate: undefined,
       };
+      console.log("AuthContext: Datos a guardar para nuevo usuario:", newUserProfileData);
 
       const profileSaved = await saveUserProfileToDB(newUserProfileData);
 
       if (profileSaved) {
-        setUserProfile(newUserProfileData);
-        toast({ title: "Registro Exitoso", description: `¡Bienvenido/a, ${name}!` });
-        router.push(redirectPath ?? '/schedule');
-      } else {
+        setUserProfile(newUserProfileData); 
         toast({
-          title: "Error de Registro",
-          description: "Tu cuenta fue creada pero hubo un problema al guardar tu perfil.",
-          variant: "destructive"
+          title: "Registro Exitoso",
+          description: `¡Bienvenido/a, ${name}! Tu cuenta ha sido creada.`,
         });
+        const redirectPath = searchParams.get('redirect') || '/schedule';
+        router.push(redirectPath);
+      } else {
+        toast({ title: "Error de Registro", description: "Tu cuenta fue creada pero hubo un problema al guardar tu perfil.", variant: "destructive" });
       }
     } catch (error: any) {
       let errorMessage = "Ocurrió un error durante el registro.";
       if (error.code === 'auth/email-already-in-use') {
-        errorMessage = "Este correo ya está en uso.";
+        errorMessage = "Este correo electrónico ya está en uso. Por favor, intenta con otro o inicia sesión.";
       } else if (error.code === 'auth/weak-password') {
-        errorMessage = "La contraseña debe tener al menos 6 caracteres.";
+        errorMessage = "La contraseña es demasiado débil. Debe tener al menos 6 caracteres.";
       } else if (error.message) {
         errorMessage = `Error: ${error.message}`;
       }
       toast({ title: "Error de Registro", description: errorMessage, variant: "destructive" });
+      console.warn("Error de Firebase Auth durante el registro (manejado):", error);
     } finally {
       setLoading(false);
     }
   };
 
-  const loginUser = async (
-    email: string,
-    password: string,
-    redirectPath?: string
-  ) => {
+  const loginUser = async (email: string, password: string) => {
     setLoading(true);
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
@@ -146,27 +140,29 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const profile = await getUserProfileFromDB(firebaseUser.uid);
       if (profile) {
         setUserProfile(profile);
-        toast({ title: "Inicio de Sesión Exitoso", description: `¡Bienvenido/a de nuevo, ${profile.name}!` });
-        const defaultPath = profile.role === 'admin' || profile.role === 'trainer'
-          ? '/trainer-dashboard'
-          : '/schedule';
-        router.push(redirectPath ?? defaultPath);
-      } else {
         toast({
-          title: "Error de Perfil",
-          description: "No se pudo cargar tu perfil. Intenta de nuevo.",
-          variant: "destructive"
+          title: "Inicio de Sesión Exitoso",
+          description: `¡Bienvenido/a de nuevo, ${profile.name}!`,
         });
-        setCurrentUser(firebaseUser);
+        const redirectPath = searchParams.get('redirect') || (profile.role === 'admin' || profile.role === 'trainer' ? '/trainer-dashboard' : '/schedule');
+        router.push(redirectPath);
+      } else {
+        console.warn(`Perfil no encontrado en Firestore para el usuario ${firebaseUser.uid} tras iniciar sesión.`);
+        toast({ title: "Error de Perfil", description: "No se pudo cargar tu perfil. Intenta de nuevo o contacta a soporte.", variant: "destructive" });
+         // Aún así, permitir el flujo si el login en Firebase Auth fue exitoso, pero el perfil de Firestore falló.
+        // Se podría intentar crear un perfil básico aquí si no existe, o manejarlo de otra forma.
+        // Por ahora, el usuario estará logueado en Auth, pero userProfile será null.
+        setCurrentUser(firebaseUser); // Asegurar que currentUser esté seteado
       }
     } catch (error: any) {
       let errorMessage = "Ocurrió un error al iniciar sesión.";
-      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
-        errorMessage = "Correo o contraseña incorrectos.";
+      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential' || error.code === 'auth/invalid-email') {
+        errorMessage = "Correo electrónico o contraseña incorrectos.";
       } else if (error.message) {
-        errorMessage = `Error: ${error.message}`;
+         errorMessage = `Error: ${error.message}`;
       }
       toast({ title: "Error de Inicio de Sesión", description: errorMessage, variant: "destructive" });
+      console.warn("Error de Firebase Auth durante el inicio de sesión (manejado):", error);
     } finally {
       setLoading(false);
     }
@@ -176,8 +172,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setLoading(true);
     try {
       await signOut(auth);
-      setCurrentUser(null);
-      setUserProfile(null);
+      setCurrentUser(null); 
+      setUserProfile(null); 
       router.push('/login');
       toast({ title: "Sesión Cerrada", description: "Has cerrado sesión exitosamente." });
     } catch (error: any) {
@@ -188,25 +184,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const updateUserProfileDetails = async (
-    details: Partial<Pick<UserProfile, 'name' | 'specialty' | 'bio' | 'phone'>>
-  ) => {
+  const updateUserProfileDetails = async (details: Partial<Pick<UserProfile, 'name' | 'specialty' | 'bio' | 'phone' | 'dni'>>) => {
     if (currentUser && userProfile) {
       setLoading(true);
       const userDocRef = doc(db, 'users', currentUser.uid);
       try {
         await updateDoc(userDocRef, details);
-        setUserProfile(prev => prev ? { ...prev, ...details } : null);
+        setUserProfile(prevProfile => prevProfile ? { ...prevProfile, ...details } : null);
         toast({ title: "Perfil Actualizado", description: "Tus detalles han sido actualizados." });
       } catch (error) {
-        console.error("Error actualizando perfil:", error);
-        toast({ title: "Error", description: "No se pudo actualizar tu perfil.", variant: "destructive" });
+        console.error("Error actualizando detalles en Firestore: ", error);
+        toast({ title: "Error al Actualizar", description: "No se pudieron actualizar tus detalles.", variant: "destructive"});
       } finally {
         setLoading(false);
       }
     }
   };
-
+  
   const isAuthenticated = !!currentUser;
 
   return (
