@@ -23,7 +23,7 @@ export default function RootLayout({
   return (
     <html lang="es" className={`${GeistSans.variable} ${GeistMono.variable}`}>
       <body className={`antialiased flex flex-col min-h-screen font-sans`}>
-        <Suspense fallback={<div>Loading...</div>}>
+        <Suspense>
           <AuthContextWrapper>
             <Header />
             <main className="flex-grow container mx-auto px-4 py-8">
