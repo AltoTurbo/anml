@@ -9,7 +9,7 @@ export default function Footer() {
     { name: 'Instagram', icon: Instagram, href: 'https://www.instagram.com/animalfitcenter/' },
   ];
   
-  const whatsappNumber = "5491154983534"; // Formato internacional sin símbolos
+  const whatsappNumber = "5491121678134"; // Formato internacional sin símbolos
   const whatsappLink = `https://wa.me/${whatsappNumber}`;
   const googleMapsLink = "https://www.google.com/maps/search/?api=1&query=Eva+Duarte+de+Per%C3%B3n,+Grand+Bourg,+Argentina";
 
@@ -41,7 +41,7 @@ export default function Footer() {
               <li className="flex items-center justify-center md:justify-start gap-2">
                 <Phone className="h-4 w-4 text-primary shrink-0" />
                 <a href={whatsappLink} target="_blank" rel="noopener noreferrer" className="hover:text-primary">
-                  011 5498-3534
+                  11-2167-8134
                 </a>
               </li>
               <li className="flex items-center justify-center md:justify-start gap-2">
